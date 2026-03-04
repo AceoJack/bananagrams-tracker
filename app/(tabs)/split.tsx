@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Pressable, Text, View } from "react-native";
 import { SaveGameModal } from "../../components/SaveGameModal";
 import { formatDuration } from "../../utils/format";
+import * as Haptics from "expo-haptics";
 
 export default function SplitScreen() {
   const [running, setRunning] = useState(false);
@@ -22,14 +23,18 @@ export default function SplitScreen() {
     return () => clearInterval(id);
   }, [running, startMs]);
 
-  const start = () => {
+  const start = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
     const now = Date.now();
     setStartMs(now);
     setElapsedSec(0);
     setRunning(true);
   };
 
-  const stop = () => {
+  const stop = async () => {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
     setRunning(false);
     setPlayedAtISO(new Date().toISOString());
     setSaveOpen(true);
@@ -41,9 +46,12 @@ export default function SplitScreen() {
     setElapsedSec(0);
   };
 
+  const hapticButton = async () => {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
   return (
     <View style={{ flex: 1, padding: 16, gap: 16, justifyContent: "center" }}>
-      <Text style={{ fontSize: 24, fontWeight: "700", textAlign: "center" }}>Split</Text>
 
       <Text style={{ fontSize: 48, fontWeight: "800", textAlign: "center" }}>
         {formatDuration(elapsedSec)}
@@ -55,11 +63,11 @@ export default function SplitScreen() {
           style={{
             padding: 16,
             borderRadius: 14,
-            backgroundColor: "#111",
+            backgroundColor: "#FFED29",
             alignItems: "center",
           }}
         >
-          <Text style={{ color: "white", fontSize: 18, fontWeight: "700" }}>SPLIT</Text>
+          <Text style={{ color: "black", fontSize: 18, fontWeight: "700" }}>SPLIT</Text>
         </Pressable>
       ) : (
         <Pressable
@@ -67,26 +75,27 @@ export default function SplitScreen() {
           style={{
             padding: 16,
             borderRadius: 14,
-            backgroundColor: "#111",
+            backgroundColor: "#2bff00ff",
             alignItems: "center",
           }}
         >
-          <Text style={{ color: "white", fontSize: 18, fontWeight: "700" }}>STOP</Text>
+          <Text style={{ color: "black", fontSize: 18, fontWeight: "700" }}>BANANAGRAMS</Text>
         </Pressable>
       )}
 
-      <Pressable onPress={reset} style={{ alignItems: "center" }}>
-        <Text style={{ color: "#444" }}>Reset</Text>
-      </Pressable>
-
       <SaveGameModal
         visible={saveOpen}
-        onClose={() => setSaveOpen(false)}
+        onClose={() => {
+          setSaveOpen(false);
+          reset();
+          hapticButton();
+        }}
         durationSeconds={elapsedSec}
         playedAtISO={playedAtISO}
         onSaved={async () => {
-          // after save, reset timer so next game is clean
+          setSaveOpen(false);
           reset();
+          hapticButton();
         }}
       />
     </View>

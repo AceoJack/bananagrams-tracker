@@ -7,5 +7,13 @@ export function formatDuration(seconds: number) {
 
 export function formatDateTime(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleString();
+
+  const date = d.toLocaleDateString("en-GB"); // dd/mm/yyyy
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  return `${date}, ${time}`;
 }

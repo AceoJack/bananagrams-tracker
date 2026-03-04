@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Modal, Pressable, Text, View } from "react-native";
+import { Alert, Modal, Pressable, Text, View, ScrollView } from "react-native";
 import type { PlayerRow } from "../db/queries";
 import { createGame, createPlayer, listPlayers } from "../db/queries";
 import { PlayerMultiSelect } from "./PlayerMultiSelect";
-import { AddPlayerModal } from "./AddPlayerModal";
+import { AddPlayerSheet } from "./AddPlayerSheet";
+import * as Haptics from "expo-haptics";
 
 export function SaveGameModal({
   visible,
@@ -52,10 +53,21 @@ export function SaveGameModal({
   };
 
   const handleCreatePlayer = async (name: string) => {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const newPlayer = await createPlayer(name);
     await refreshPlayers();
     // auto-select newly created player
     setSelectedIds((prev) => [...prev, newPlayer.id]);
+  };
+
+  const openAddPlayer = async () => {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setAddModalOpen(true);
+  };
+
+  const cancelAddPlayer = async () => {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setAddModalOpen(false);
   };
 
   const handleSave = async () => {
@@ -86,58 +98,103 @@ export function SaveGameModal({
   };
 
   return (
-    <>
-      <Modal visible={visible} animationType="slide">
-        <View style={{ flex: 1, padding: 16, gap: 14 }}>
-          <Text style={{ fontSize: 22, fontWeight: "700" }}>Save Game</Text>
+    <Modal visible={visible} animationType="fade" transparent>
+      {/* Backdrop */}
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.35)",
+          justifyContent: "center",
+          padding: 20,
+        }}
+      >
+        {/* Card */}
+        <View
+          style={{
+            position: "relative",
+            backgroundColor: "white",
+            borderRadius: 16,
+            maxHeight: "85%",
+            shadowColor: "#000",
+            shadowOpacity: 0.15,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 6,
 
-          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-            <Text style={{ fontWeight: "600" }}>Players</Text>
-            <Pressable onPress={() => setAddModalOpen(true)}>
-              <Text style={{ fontSize: 16 }}>+ Add Player</Text>
-            </Pressable>
-          </View>
+            // IMPORTANT: makes rounded corners apply to the scrolling content too
+            overflow: "hidden",
+          }}
+        >
+          {/* Scrollable content */}
+          <ScrollView
+            contentContainerStyle={{
+              padding: 20,
+              gap: 14,
+              paddingBottom: 12, // breathing room above footer
+            }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={{ fontSize: 22, fontWeight: "700" }}>Save Game</Text>
 
-          <PlayerMultiSelect players={players} selectedIds={selectedIds} onToggle={toggle} />
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Text style={{ fontWeight: "600" }}>Players</Text>
+              <Pressable onPress={openAddPlayer}>
+                <Text style={{ fontSize: 16 }}>+ Add Player</Text>
+              </Pressable>
+            </View>
 
-          <View style={{ marginTop: 8, gap: 8 }}>
-            <Text style={{ fontWeight: "600" }}>Winner</Text>
+            <PlayerMultiSelect players={players} selectedIds={selectedIds} onToggle={toggle} />
 
-            {selectedPlayers.length === 0 ? (
-              <Text style={{ color: "#666" }}>Select players first.</Text>
-            ) : (
-              <View style={{ gap: 8 }}>
-                {selectedPlayers.map((p) => {
-                  const selected = winnerId === p.id;
-                  return (
-                    <Pressable
-                      key={p.id}
-                      onPress={() => setWinnerId(p.id)}
-                      style={{
-                        padding: 12,
-                        borderWidth: 1,
-                        borderRadius: 10,
-                        borderColor: selected ? "#333" : "#ccc",
-                        backgroundColor: selected ? "#eaeaea" : "white",
-                        flexDirection: "row",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <Text style={{ fontSize: 16 }}>{p.name}</Text>
-                      <Text>{selected ? "🏆" : ""}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-          </View>
+            <View style={{ marginTop: 8, gap: 8 }}>
+              <Text style={{ fontWeight: "600" }}>Winner</Text>
 
-          <View style={{ flex: 1 }} />
+              {selectedPlayers.length === 0 ? (
+                <Text style={{ color: "#666" }}>Select players first.</Text>
+              ) : (
+                <View style={{ gap: 8 }}>
+                  {selectedPlayers.map((p) => {
+                    const selected = winnerId === p.id;
+                    return (
+                      <Pressable
+                        key={p.id}
+                        onPress={() => setWinnerId(p.id)}
+                        style={{
+                          padding: 12,
+                          borderWidth: 1,
+                          borderRadius: 10,
+                          borderColor: selected ? "#333" : "#ccc",
+                          backgroundColor: selected ? "#eaeaea" : "white",
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Text style={{ fontSize: 16 }}>{p.name}</Text>
+                        <Text>{selected ? "🏆" : ""}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          </ScrollView>
 
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 12 }}>
+          {/* Pinned footer (always visible) */}
+          <View
+            style={{
+              padding: 20,
+              paddingTop: 12,
+              borderTopWidth: 1,
+              borderTopColor: "#eee",
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              gap: 12,
+              backgroundColor: "white",
+            }}
+          >
             <Pressable onPress={onClose} disabled={saving} style={{ padding: 12 }}>
               <Text>Cancel</Text>
             </Pressable>
+
             <Pressable
               onPress={handleSave}
               disabled={saving}
@@ -146,14 +203,15 @@ export function SaveGameModal({
               <Text style={{ color: "white" }}>{saving ? "Saving..." : "Save"}</Text>
             </Pressable>
           </View>
-        </View>
-      </Modal>
 
-      <AddPlayerModal
-        visible={addModalOpen}
-        onClose={() => setAddModalOpen(false)}
-        onCreate={handleCreatePlayer}
-      />
-    </>
+          {/* Overlay MUST be inside card so it fully covers it */}
+          <AddPlayerSheet
+            visible={addModalOpen}
+            onClose={cancelAddPlayer}
+            onCreate={handleCreatePlayer}
+          />
+        </View>
+      </View>
+    </Modal>
   );
 }
