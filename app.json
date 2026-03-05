@@ -61,7 +61,8 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": true,
+      "baseUrl": "/bananagrams-tracker"
     },
     "extra": {
       "router": {},
