@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Modal, Pressable, Text, View, ScrollView } from "react-native";
+import { Alert, Modal, Pressable, Text, View, ScrollView, Platform } from "react-native";
 import type { Player } from "../db/queries.firestore";
 import { createGame, createPlayer, listPlayers } from "../db/queries.firestore";
 import { PlayerMultiSelect } from "./PlayerMultiSelect";
 import { AddPlayerSheet } from "./AddPlayerSheet";
 import * as Haptics from "expo-haptics";
+import { runOCRFromBlob } from "../utils/ocr";
 
 export function SaveGameModal({
   visible,
@@ -19,11 +20,54 @@ export function SaveGameModal({
   playedAtISO: string;
   onSaved: () => Promise<void> | void;
 }) {
+  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
+  const [ocrRunning, setOcrRunning] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [winnerId, setWinnerId] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
+
+  const handleChoosePhotoWeb = async () => {
+    try {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      // @ts-ignore
+      input.capture = "environment";
+
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+
+        setOcrRunning(true);
+
+        try {
+          // keep a reference to the picked file so the UI can show "Change photo"
+          setPhotoBlob(file);
+
+          const { rawText, words } = await runOCRFromBlob(file);
+
+          console.log("OCR raw text:\n", rawText);
+
+          const cleanedWords = words
+            .map((w) => w.text.toUpperCase().replace(/[^A-Z]/g, ""))
+            .filter((w) => w.length >= 2);
+
+          console.log("OCR words:", cleanedWords);
+          console.log("OCR word boxes (first 20):", words.slice(0, 20));
+        } catch (e) {
+          console.error("OCR failed:", e);
+        } finally {
+          setOcrRunning(false);
+        }
+      };
+
+      input.click();
+    } catch (e) {
+      console.error("File picker failed:", e);
+    }
+  };
 
   const refreshPlayers = async () => {
     const rows = await listPlayers();
@@ -125,6 +169,29 @@ export function SaveGameModal({
             overflow: "hidden",
           }}
         >
+          <View style={{ gap: 8, marginTop: 10 }}>
+            <Text style={{ fontWeight: "600" }}>Board photo (OCR)</Text>
+            {Platform.OS === "web" ? (
+              <Pressable
+                onPress={handleChoosePhotoWeb}
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "#ccc",
+                  backgroundColor: "white",
+                }}
+                disabled={ocrRunning}
+              >
+                <Text>{ocrRunning ? "Scanning..." : photoBlob ? "Change photo" : "Upload / Take photo"}</Text>
+              </Pressable>
+            ) : (
+              <Text style={{ color: "#666" }}>
+                OCR upload is set up for web right now. We can add mobile picking next.
+              </Text>
+            )}
+          </View>
+
           {/* Scrollable content */}
           <ScrollView
             contentContainerStyle={{

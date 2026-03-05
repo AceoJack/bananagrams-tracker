@@ -1,24 +1,46 @@
-import React, { useEffect, useState } from "react";
-import { listPlayers, type Player } from "../../db/queries.firestore";
-import { Platform, ScrollView, Text, View } from "react-native";
+import { useEffect, useState, useCallback } from "react";
+import { ScrollView, Text, View } from "react-native";
+import { onAuthStateChanged } from "firebase/auth";
+import { getFirebaseAuth } from "../../utils/firebase"; // adjust path
+import { listPlayers, type Player } from "../../db/queries.firestore"; // adjust path
+import { useFocusEffect } from "expo-router";
 
 export default function Home() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [uid, setUid] = useState<string | null>(null);
 
   useEffect(() => {
-    // prevents server-render path from running Firebase logic
-    if (Platform.OS === "web" && typeof window === "undefined") return;
-
-    (async () => {
-      try {
-        const data = await listPlayers();
-        setPlayers(data);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load players");
-      }
-    })();
+    const auth = getFirebaseAuth();
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setUid(user?.uid ?? null);
+      // Clear stale "permissions" errors when auth changes
+      setError(null);
+    });
+    return () => unsub();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!uid) return;
+
+      let cancelled = false;
+
+      (async () => {
+        try {
+          const data = await listPlayers();
+          if (!cancelled) setPlayers(data);
+        } catch (e: any) {
+          console.error("Home listPlayers failed:", e);
+          if (!cancelled) setError(e?.message ?? "Failed to load players");
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [uid])
+  );
 
   if (error) return <Text>{error}</Text>;
 
