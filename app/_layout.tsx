@@ -1,15 +1,20 @@
 import "react-native-get-random-values";
 import { Stack } from "expo-router";
 import { useEffect, useState } from "react";
-import { initDb } from "../db/database";
+import { signInAnonymously } from "firebase/auth";
+import { getFirebaseAuth } from "../utils/firebase";
+import { ensureSignedIn } from "../utils/auth";
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     (async () => {
-      await initDb();
+      const auth = getFirebaseAuth();
+      if (!auth.currentUser) await signInAnonymously(auth);
       setReady(true);
+      const uid = await ensureSignedIn();
+      console.log("Firebase UID:", uid);
     })();
   }, []);
 

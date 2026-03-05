@@ -1,12 +1,12 @@
 import { Pressable, Text, View } from "react-native";
-import type { PlayerRow } from "../db/queries";
+import type { Player } from "../db/queries.firestore";
 
 export function PlayerMultiSelect({
   players,
   selectedIds,
   onToggle,
 }: {
-  players: PlayerRow[];
+  players: Player[];
   selectedIds: string[];
   onToggle: (playerId: string) => void;
 }) {

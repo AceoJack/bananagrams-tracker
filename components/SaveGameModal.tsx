@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, Text, View, ScrollView } from "react-native";
-import type { PlayerRow } from "../db/queries";
-import { createGame, createPlayer, listPlayers } from "../db/queries";
+import type { Player } from "../db/queries.firestore";
+import { createGame, createPlayer, listPlayers } from "../db/queries.firestore";
 import { PlayerMultiSelect } from "./PlayerMultiSelect";
 import { AddPlayerSheet } from "./AddPlayerSheet";
 import * as Haptics from "expo-haptics";
@@ -19,7 +19,7 @@ export function SaveGameModal({
   playedAtISO: string;
   onSaved: () => Promise<void> | void;
 }) {
-  const [players, setPlayers] = useState<PlayerRow[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [winnerId, setWinnerId] = useState<string>("");
   const [saving, setSaving] = useState(false);

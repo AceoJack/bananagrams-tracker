@@ -1,11 +1,11 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
-import { listGames, type GameRow } from "../../db/queries";
+import { listGames, type Game } from "../../db/queries.firestore";
 import { formatDateTime, formatDuration } from "../../utils/format";
 
 export default function StatsScreen() {
-  const [games, setGames] = useState<GameRow[]>([]);
+  const [games, setGames] = useState<Game[]>([]);
 
   const load = async () => {
     setGames(await listGames());
@@ -38,9 +38,9 @@ export default function StatsScreen() {
               key={g.id}
               style={{ flexDirection: "row", padding: 12, borderTopWidth: 1, borderTopColor: "#eee" }}
             >
-              <Text style={{ flex: 2 }}>{formatDateTime(g.played_at)}</Text>
+              <Text style={{ flex: 2 }}>{formatDateTime(g.playedAt)}</Text>
               <Text style={{ flex: 1.5 }}>{g.winnerName}</Text>
-              <Text style={{ flex: 1, textAlign: "right" }}>{formatDuration(g.duration_seconds)}</Text>
+              <Text style={{ flex: 1, textAlign: "right" }}>{formatDuration(g.durationSeconds)}</Text>
             </View>
           ))
         )}

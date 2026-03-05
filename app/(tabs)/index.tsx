@@ -1,20 +1,26 @@
-import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
-import { listPlayers, type PlayerRow } from "../../db/queries";
+import React, { useEffect, useState } from "react";
+import { listPlayers, type Player } from "../../db/queries.firestore";
+import { Platform, ScrollView, Text, View } from "react-native";
 
-export default function HomeScreen() {
-  const [players, setPlayers] = useState<PlayerRow[]>([]);
+export default function Home() {
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
-    setPlayers(await listPlayers());
-  };
+  useEffect(() => {
+    // prevents server-render path from running Firebase logic
+    if (Platform.OS === "web" && typeof window === "undefined") return;
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [])
-  );
+    (async () => {
+      try {
+        const data = await listPlayers();
+        setPlayers(data);
+      } catch (e: any) {
+        setError(e?.message ?? "Failed to load players");
+      }
+    })();
+  }, []);
+
+  if (error) return <Text>{error}</Text>;
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
