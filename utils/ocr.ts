@@ -268,7 +268,11 @@ function dilateMask(mask: Uint8Array, size: number): Uint8Array {
 // component are set to 255; all other pixels are 0.
 // Used to strip edge noise / shadow specks, leaving just the letter strokes.
 
-function largestDarkComponent(dark: Uint8Array, w: number, h: number): Uint8Array {
+// Keeps all dark connected components whose area is at least `minFraction` of
+// the largest component. This preserves serifs and crossbars that get
+// disconnected from the main stroke by thresholding (critical for 'I', 'T',
+// 'F', etc.) while still filtering out tiny noise specks.
+function significantDarkComponents(dark: Uint8Array, w: number, h: number, minFraction = 0.2): Uint8Array {
   const labels = new Int32Array(w * h).fill(-1);
   const sizes: number[] = [];
   let label = 0;
@@ -294,12 +298,10 @@ function largestDarkComponent(dark: Uint8Array, w: number, h: number): Uint8Arra
   const out = new Uint8Array(w * h);
   if (label === 0) return out;
 
-  let maxLabel = 0;
-  for (let i = 1; i < sizes.length; i++) {
-    if (sizes[i] > sizes[maxLabel]) maxLabel = i;
-  }
+  const maxSize = Math.max(...sizes);
+  const minSize = maxSize * minFraction;
   for (let i = 0; i < w * h; i++) {
-    if (labels[i] === maxLabel) out[i] = 255;
+    if (labels[i] >= 0 && sizes[labels[i]] >= minSize) out[i] = 255;
   }
   return out;
 }
@@ -378,9 +380,10 @@ async function cropTile(
     dark[i] = tileGray[i] < thresh ? 255 : 0;
   }
 
-  // Keep only the largest connected dark region (the letter), then dilate by
-  // 1px to thicken thin strokes (helps 'I' especially) before Tesseract reads it.
-  const letterMask = dilateMask(largestDarkComponent(dark, SIZE, SIZE), SIZE);
+  // Keep all significant dark components (≥20% of the largest), then dilate by
+  // 1px. This preserves serifs/crossbars that thresholding disconnects from the
+  // main stroke (critical for 'I') while still removing tiny noise specks.
+  const letterMask = dilateMask(significantDarkComponents(dark, SIZE, SIZE, 0.2), SIZE);
 
   // Write clean binary image back to canvas and measure inner dark ratio
   // so the retry loop can detect a still-corrupted mask.
@@ -498,31 +501,37 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
 
     if (typeof worker.setParameters === 'function') {
       await worker.setParameters({
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+        // l, 1, | look identical to a plain vertical-bar 'I' (no serifs on
+        // Bananagram tiles). parseLetter remaps them to 'I'.
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZl1|',
         tessedit_pageseg_mode: '10',   // single character
         tessedit_ocr_engine_mode: '1', // LSTM only
       });
     }
 
+    // Plain vertical bar — what Tesseract sees for a serif-less 'I' tile.
+    const VERTICAL_BAR = new Set(['l', '1', '|']);
+    const toLetter = (ch: string) => VERTICAL_BAR.has(ch) ? 'I' : ch.toUpperCase();
+
     const parseLetter = (result: any): { letter: string; confidence: number } => {
       const pageConfidence: number = result.data?.confidence ?? 0;
       const symbols: any[] = result.data?.symbols ?? [];
-      const validSymbols = symbols.filter((s: any) => /^[A-Z]$/.test(s.text));
+      const validSymbols = symbols.filter((s: any) => /^[A-Za-z1|]$/.test(s.text));
 
       if (validSymbols.length > 0) {
         const best = validSymbols.reduce((a: any, b: any) =>
           b.confidence > a.confidence ? b : a,
         );
         return {
-          letter: best.text,
+          letter: toLetter(best.text),
           confidence: Math.round(best.confidence > 0 ? best.confidence : pageConfidence),
         };
       }
 
-      const raw = (result.data?.text ?? '').trim().replace(/[^A-Za-z]/g, '').toUpperCase();
+      const raw = (result.data?.text ?? '').trim().replace(/[^A-Za-z1|]/g, '');
       if (raw.length > 0) {
         return {
-          letter: raw[0],
+          letter: toLetter(raw[0]),
           confidence: Math.round(
             pageConfidence > 0 ? pageConfidence : (result.data?.words?.[0]?.confidence ?? 0),
           ),
