@@ -268,11 +268,7 @@ function dilateMask(mask: Uint8Array, size: number): Uint8Array {
 // component are set to 255; all other pixels are 0.
 // Used to strip edge noise / shadow specks, leaving just the letter strokes.
 
-// Keeps all dark connected components whose area is at least `minFraction` of
-// the largest component. This preserves serifs and crossbars that get
-// disconnected from the main stroke by thresholding (critical for 'I', 'T',
-// 'F', etc.) while still filtering out tiny noise specks.
-function significantDarkComponents(dark: Uint8Array, w: number, h: number, minFraction = 0.2): Uint8Array {
+function largestDarkComponent(dark: Uint8Array, w: number, h: number): Uint8Array {
   const labels = new Int32Array(w * h).fill(-1);
   const sizes: number[] = [];
   let label = 0;
@@ -298,10 +294,12 @@ function significantDarkComponents(dark: Uint8Array, w: number, h: number, minFr
   const out = new Uint8Array(w * h);
   if (label === 0) return out;
 
-  const maxSize = Math.max(...sizes);
-  const minSize = maxSize * minFraction;
+  let maxLabel = 0;
+  for (let i = 1; i < sizes.length; i++) {
+    if (sizes[i] > sizes[maxLabel]) maxLabel = i;
+  }
   for (let i = 0; i < w * h; i++) {
-    if (labels[i] >= 0 && sizes[labels[i]] >= minSize) out[i] = 255;
+    if (labels[i] === maxLabel) out[i] = 255;
   }
   return out;
 }
@@ -314,6 +312,7 @@ async function cropTile(
   rect: TileRect,
   thresholdOverride?: number,
   percentile?: number,
+  inset = 0.15,
 ): Promise<{ blob: Blob; pixels: Uint8Array; thresh: number; darkRatio: number }> {
   const SIZE = 128;
   const PAD = 18;
@@ -321,9 +320,9 @@ async function cropTile(
   const fullW = Math.max(1, rect.x1 - rect.x0);
   const fullH = Math.max(1, rect.y1 - rect.y0);
 
-  // Inset by 15% per side to strip the dark tile border before thresholding.
-  const insetX = Math.round(fullW * 0.15);
-  const insetY = Math.round(fullH * 0.15);
+  // Inset per side to strip the dark tile border before thresholding.
+  const insetX = Math.round(fullW * inset);
+  const insetY = Math.round(fullH * inset);
   const sx = rect.x0 + insetX;
   const sy = rect.y0 + insetY;
   const sw = Math.max(1, fullW - insetX * 2);
@@ -369,7 +368,9 @@ async function cropTile(
       for (let i = 0; i < SIZE * SIZE; i++) {
         if (tileGray[i] < thresh) darkCount++;
       }
-      if (darkCount / (SIZE * SIZE) <= 0.30) break;
+      // Cap at 22%: thick letters (B, P, R) legitimately use ~15-20% of the
+      // tile area; anything above 22% means shadow ink is contaminating the mask.
+      if (darkCount / (SIZE * SIZE) <= 0.22) break;
       thresh = Math.min(245, thresh + 15);
     }
   }
@@ -380,10 +381,10 @@ async function cropTile(
     dark[i] = tileGray[i] < thresh ? 255 : 0;
   }
 
-  // Keep all significant dark components (≥20% of the largest), then dilate by
-  // 1px. This preserves serifs/crossbars that thresholding disconnects from the
-  // main stroke (critical for 'I') while still removing tiny noise specks.
-  const letterMask = dilateMask(significantDarkComponents(dark, SIZE, SIZE, 0.2), SIZE);
+  // Keep only the largest dark component (the letter body), then dilate 1px to
+  // thicken thin strokes. largestDarkComponent is intentionally strict — keeping
+  // multiple components caused scattered noise to combine into black masses.
+  const letterMask = dilateMask(largestDarkComponent(dark, SIZE, SIZE), SIZE);
 
   // Write clean binary image back to canvas and measure inner dark ratio
   // so the retry loop can detect a still-corrupted mask.
@@ -501,22 +502,22 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
 
     if (typeof worker.setParameters === 'function') {
       await worker.setParameters({
-        // l, 1, | look identical to a plain vertical-bar 'I' (no serifs on
-        // Bananagram tiles). parseLetter remaps them to 'I'.
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZl1|',
+        // l, 1, | → remapped to 'I' (no-serif vertical bar on Bananagram tiles).
+        // 0       → remapped to 'O' (perfect circle confused with digit zero).
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZl1|0',
         tessedit_pageseg_mode: '10',   // single character
         tessedit_ocr_engine_mode: '1', // LSTM only
       });
     }
 
-    // Plain vertical bar — what Tesseract sees for a serif-less 'I' tile.
-    const VERTICAL_BAR = new Set(['l', '1', '|']);
-    const toLetter = (ch: string) => VERTICAL_BAR.has(ch) ? 'I' : ch.toUpperCase();
+    // Map visually-ambiguous Tesseract outputs back to the correct Bananagram letter.
+    const REMAP: Record<string, string> = { l: 'I', '1': 'I', '|': 'I', '0': 'O' };
+    const toLetter = (ch: string) => REMAP[ch] ?? ch.toUpperCase();
 
     const parseLetter = (result: any): { letter: string; confidence: number } => {
       const pageConfidence: number = result.data?.confidence ?? 0;
       const symbols: any[] = result.data?.symbols ?? [];
-      const validSymbols = symbols.filter((s: any) => /^[A-Za-z1|]$/.test(s.text));
+      const validSymbols = symbols.filter((s: any) => /^[A-Za-z1|0]$/.test(s.text));
 
       if (validSymbols.length > 0) {
         const best = validSymbols.reduce((a: any, b: any) =>
@@ -528,7 +529,7 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
         };
       }
 
-      const raw = (result.data?.text ?? '').trim().replace(/[^A-Za-z1|]/g, '');
+      const raw = (result.data?.text ?? '').trim().replace(/[^A-Za-z1|0]/g, '');
       if (raw.length > 0) {
         return {
           letter: toLetter(raw[0]),
@@ -592,6 +593,23 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
           if (best.parsed.confidence >= 50) break;
         }
 
+        parsed = best.parsed;
+        crop = best.crop;
+      }
+
+      // Phase 3: if still below 70%, retry with progressively larger insets to
+      // cut more of the tile border out. Keep whichever attempt scores highest.
+      if (parsed.confidence < 70) {
+        let best = { parsed, crop };
+        for (const inset of [0.20, 0.25, 0.30]) {
+          const iCrop = await cropTile(srcCanvas, rect, undefined, undefined, inset);
+          const iParsed = parseLetter(await worker.recognize(iCrop.blob));
+          if (iParsed.confidence > best.parsed.confidence) {
+            best = { parsed: iParsed, crop: iCrop };
+            console.log(`[OCR] tile ${i + 1}: inset ${inset} → ${iParsed.letter} (${iParsed.confidence}%)`);
+          }
+          if (best.parsed.confidence >= 70) break;
+        }
         parsed = best.parsed;
         crop = best.crop;
       }
