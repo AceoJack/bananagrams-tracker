@@ -240,10 +240,7 @@ function detectTileRects(gray: Uint8Array, w: number, h: number): TileRect[] {
   return deduped;
 }
 
-// ── Morphological dilation ────────────────────────────────────────────────────
-// Expands each dark pixel by 1px using a plus-shaped structuring element.
-// Thickens thin strokes (especially 'I') so Tesseract's LSTM can read them
-// without distorting broader letter shapes.
+// ── Morphological operations ──────────────────────────────────────────────────
 
 function dilateMask(mask: Uint8Array, size: number): Uint8Array {
   const out = new Uint8Array(size * size);
@@ -255,6 +252,27 @@ function dilateMask(mask: Uint8Array, size: number): Uint8Array {
         (x < size - 1 && mask[y * size + (x + 1)]) ||
         (y > 0        && mask[(y - 1) * size + x]) ||
         (y < size - 1 && mask[(y + 1) * size + x])
+      ) {
+        out[y * size + x] = 255;
+      }
+    }
+  }
+  return out;
+}
+
+// Shrinks dark regions by 1px. Applied after dilation to create morphological
+// closing: fills tiny threshold gaps without net-thickening strokes.
+// Prevents dilation from closing the loops of P, B, R, D.
+function erodeMask(mask: Uint8Array, size: number): Uint8Array {
+  const out = new Uint8Array(size * size);
+  for (let y = 1; y < size - 1; y++) {
+    for (let x = 1; x < size - 1; x++) {
+      if (
+        mask[y * size + x] &&
+        mask[y * size + (x - 1)] &&
+        mask[y * size + (x + 1)] &&
+        mask[(y - 1) * size + x] &&
+        mask[(y + 1) * size + x]
       ) {
         out[y * size + x] = 255;
       }
@@ -313,6 +331,7 @@ async function cropTile(
   thresholdOverride?: number,
   percentile?: number,
   inset = 0.15,
+  erode = false,
 ): Promise<{ blob: Blob; pixels: Uint8Array; thresh: number; darkRatio: number }> {
   const SIZE = 128;
   const PAD = 18;
@@ -381,10 +400,13 @@ async function cropTile(
     dark[i] = tileGray[i] < thresh ? 255 : 0;
   }
 
-  // Keep only the largest dark component (the letter body), then dilate 1px to
-  // thicken thin strokes. largestDarkComponent is intentionally strict — keeping
-  // multiple components caused scattered noise to combine into black masses.
-  const letterMask = dilateMask(largestDarkComponent(dark, SIZE, SIZE), SIZE);
+  // Keep only the largest dark component (the letter body).
+  // Dilate 1px to thicken thin strokes, then optionally erode 1px (closing)
+  // to cancel the net thickening while still filling tiny threshold gaps.
+  // Closing prevents dilation from sealing the loops of P, B, R, D.
+  const largest = largestDarkComponent(dark, SIZE, SIZE);
+  const dilated = dilateMask(largest, SIZE);
+  const letterMask = erode ? erodeMask(dilated, SIZE) : dilated;
 
   // Write clean binary image back to canvas and measure inner dark ratio
   // so the retry loop can detect a still-corrupted mask.
@@ -597,18 +619,21 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
         crop = best.crop;
       }
 
-      // Phase 3: if still below 70%, retry with progressively larger insets to
-      // cut more of the tile border out. Keep whichever attempt scores highest.
+      // Phase 3: if still below 70%, retry with progressively larger insets
+      // (strips more border) and also try morphological closing (dilate+erode)
+      // which prevents dilation from sealing loops on thick letters like P/B/R.
       if (parsed.confidence < 70) {
         let best = { parsed, crop };
-        for (const inset of [0.20, 0.25, 0.30]) {
-          const iCrop = await cropTile(srcCanvas, rect, undefined, undefined, inset);
-          const iParsed = parseLetter(await worker.recognize(iCrop.blob));
-          if (iParsed.confidence > best.parsed.confidence) {
-            best = { parsed: iParsed, crop: iCrop };
-            console.log(`[OCR] tile ${i + 1}: inset ${inset} → ${iParsed.letter} (${iParsed.confidence}%)`);
+        outer: for (const inset of [0.20, 0.25, 0.30]) {
+          for (const erode of [false, true]) {
+            const iCrop = await cropTile(srcCanvas, rect, undefined, undefined, inset, erode);
+            const iParsed = parseLetter(await worker.recognize(iCrop.blob));
+            if (iParsed.confidence > best.parsed.confidence) {
+              best = { parsed: iParsed, crop: iCrop };
+              console.log(`[OCR] tile ${i + 1}: inset ${inset} erode=${erode} → ${iParsed.letter} (${iParsed.confidence}%)`);
+            }
+            if (best.parsed.confidence >= 70) break outer;
           }
-          if (best.parsed.confidence >= 70) break;
         }
         parsed = best.parsed;
         crop = best.crop;
