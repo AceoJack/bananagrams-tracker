@@ -5,18 +5,12 @@ export type OCRTile = {
   bbox: { x0: number; y0: number; x1: number; y1: number };
   /** Object URL of the processed 128×128 image fed to the matcher — caller must revoke. */
   debugUrl: string;
-  /** Data URL of the template the tile was matched against — no cleanup needed. */
-  matchedTemplateUrl: string;
-  /** Top 5 template matches so near-misses are visible in the UI. */
-  topMatches: { letter: string; confidence: number }[];
 };
 
 export type OCRResult = {
   tiles: OCRTile[];
   /** Object URL of annotated debug image — caller must revoke. */
   debugImageUrl: string;
-  /** How many templates were loaded. 0 means Tesseract fallback was used. */
-  templateCount: number;
 };
 
 // ── Canvas helpers ────────────────────────────────────────────────────────────
@@ -502,7 +496,7 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
 
   if (tileRects.length === 0) {
     const debugImageUrl = await buildDebugImage(srcCanvas, W, H, [], []);
-    return { tiles: [], debugImageUrl, templateCount: 0 };
+    return { tiles: [], debugImageUrl };
   }
 
   // ── Tesseract: one worker, PSM 10 (single character), LSTM only ──────────────
@@ -649,8 +643,6 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
         confidence: parsed.confidence,
         bbox: rect,
         debugUrl,
-        matchedTemplateUrl: '',
-        topMatches: [],
       });
       console.log(`[OCR] tile ${i + 1}/${tileRects.length}: ${parsed.letter || '?'} (${parsed.confidence}%)`);
     }
@@ -662,5 +654,5 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
   const debugImageUrl = await buildDebugImage(srcCanvas, W, H, tileRects, tiles);
 
   console.log(`[OCR] done — ${tiles.length} letters from ${tileRects.length} detected tiles`);
-  return { tiles, debugImageUrl, templateCount: 0 };
+  return { tiles, debugImageUrl };
 }

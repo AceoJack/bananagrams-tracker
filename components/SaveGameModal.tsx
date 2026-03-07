@@ -6,7 +6,6 @@ import type { OCRResult } from "../utils/ocr";
 import { runOCR } from "../utils/ocr";
 import { AddPlayerSheet } from "./AddPlayerSheet";
 import { PlayerMultiSelect } from "./PlayerMultiSelect";
-import { TemplateSetup } from "./TemplateSetup";
 import * as Haptics from "expo-haptics";
 
 export function SaveGameModal({
@@ -25,7 +24,6 @@ export function SaveGameModal({
   const [ocrRunning, setOcrRunning] = useState(false);
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [templateSetupOpen, setTemplateSetupOpen] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [winnerId, setWinnerId] = useState<string>("");
@@ -140,21 +138,13 @@ export function SaveGameModal({
 
               {Platform.OS === "web" ? (
                 <>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Pressable
-                      onPress={handleChoosePhoto}
-                      disabled={ocrRunning}
-                      style={{ flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#ccc", alignItems: "center" }}
-                    >
-                      <Text>{ocrRunning ? "Scanning…" : previewUrl ? "Change photo" : "Upload / Take photo"}</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setTemplateSetupOpen(true)}
-                      style={{ padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#ccc", alignItems: "center", justifyContent: "center" }}
-                    >
-                      <Text style={{ fontSize: 12, color: "#666" }}>⚙ Templates</Text>
-                    </Pressable>
-                  </View>
+                  <Pressable
+                    onPress={handleChoosePhoto}
+                    disabled={ocrRunning}
+                    style={{ padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#ccc", alignItems: "center" }}
+                  >
+                    <Text>{ocrRunning ? "Scanning…" : previewUrl ? "Change photo" : "Upload / Take photo"}</Text>
+                  </Pressable>
 
                   {/* Original photo thumbnail */}
                   {previewUrl && (
@@ -191,13 +181,6 @@ export function SaveGameModal({
                             Avg confidence: <Text style={{ fontWeight: "700" }}>{avgConf}%</Text>
                           </Text>
                         )}
-                        <Text style={{ color: ocrResult.templateCount === 26 ? "#2e7d32" : "#999" }}>
-                          {ocrResult.templateCount === 26
-                            ? "✓ Template matching"
-                            : ocrResult.templateCount > 0
-                            ? `Templates: ${ocrResult.templateCount}/26`
-                            : "Tesseract fallback"}
-                        </Text>
                       </View>
 
                       {/* Individual tile debug cards */}
@@ -205,7 +188,7 @@ export function SaveGameModal({
                         <View style={{ gap: 8 }}>
                           <Text style={{ fontWeight: "600" }}>Tile Debug</Text>
                           <Text style={{ fontSize: 11, color: "#888" }}>
-                            Each card shows the processed image fed to the matcher. If the letter looks wrong here, it's a crop/threshold issue. If it looks correct but matched the wrong letter, it's a template quality issue.
+                            Each card shows the processed image fed to Tesseract. If the letter looks wrong here, it's a crop/threshold issue.
                           </Text>
                           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                             {ocrResult.tiles.map((tile, i) => {
@@ -213,47 +196,15 @@ export function SaveGameModal({
                                 tile.confidence >= 80 ? "#c8e6c9" :
                                 tile.confidence >= 50 ? "#fff3e0" : "#ffcdd2";
                               return (
-                                <View key={i} style={{ alignItems: "center", gap: 3, width: 148 }}>
+                                <View key={i} style={{ alignItems: "center", gap: 3, width: 80 }}>
                                   <Text style={{ fontSize: 10, color: "#aaa", fontFamily: "monospace" }}>#{i + 1}</Text>
-
-                                  {/* Side-by-side: what the app saw vs what the template looks like */}
-                                  <View style={{ flexDirection: "row", gap: 4 }}>
-                                    <View style={{ alignItems: "center", gap: 2 }}>
-                                      <Image
-                                        source={{ uri: tile.debugUrl }}
-                                        style={{ width: 68, height: 68, borderRadius: 4, borderWidth: 1, borderColor: "#aaa", backgroundColor: "#fff" }}
-                                        resizeMode="contain"
-                                      />
-                                      <Text style={{ fontSize: 9, color: "#888" }}>tile</Text>
-                                    </View>
-                                    <View style={{ alignItems: "center", gap: 2 }}>
-                                      {tile.matchedTemplateUrl ? (
-                                        <Image
-                                          source={{ uri: tile.matchedTemplateUrl }}
-                                          style={{ width: 68, height: 68, borderRadius: 4, borderWidth: 1, borderColor: "#aaa", backgroundColor: "#fff" }}
-                                          resizeMode="contain"
-                                        />
-                                      ) : (
-                                        <View style={{ width: 68, height: 68, borderRadius: 4, borderWidth: 1, borderColor: "#ddd", backgroundColor: "#f5f5f5", justifyContent: "center", alignItems: "center" }}>
-                                          <Text style={{ fontSize: 9, color: "#bbb" }}>no tmpl</Text>
-                                        </View>
-                                      )}
-                                      <Text style={{ fontSize: 9, color: "#888" }}>template</Text>
-                                    </View>
-                                  </View>
-
-                                  {/* Best match */}
+                                  <Image
+                                    source={{ uri: tile.debugUrl }}
+                                    style={{ width: 68, height: 68, borderRadius: 4, borderWidth: 1, borderColor: "#aaa", backgroundColor: "#fff" }}
+                                    resizeMode="contain"
+                                  />
                                   <View style={{ backgroundColor: bg, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2, alignItems: "center" }}>
                                     <Text style={{ fontFamily: "monospace", fontWeight: "700", fontSize: 16 }}>{tile.letter} {tile.confidence}%</Text>
-                                  </View>
-
-                                  {/* Runner-ups */}
-                                  <View style={{ flexDirection: "row", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
-                                    {tile.topMatches.slice(1, 4).map((m, j) => (
-                                      <Text key={j} style={{ fontSize: 9, color: "#999" }}>
-                                        {m.letter} {m.confidence}%
-                                      </Text>
-                                    ))}
                                   </View>
                                 </View>
                               );
@@ -344,10 +295,6 @@ export function SaveGameModal({
         </View>
       </View>
 
-      <TemplateSetup
-        visible={templateSetupOpen}
-        onClose={() => setTemplateSetupOpen(false)}
-      />
     </Modal>
   );
 }
