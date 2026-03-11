@@ -2,7 +2,6 @@
 import {
   collection,
   doc,
-  getDoc,
   getDocs,
   orderBy,
   query,
@@ -15,13 +14,25 @@ import { signInAnonymously } from "firebase/auth";
 import { getFirebaseAuth, getFirebaseDb } from "../utils/firebase";
 
 export type Player = { id: string; name: string; wins: number; losses: number };
+
+export type StoredBoardTile = { letter: string; col: number; row: number };
+export type StoredBoardWord = {
+  word: string;
+  direction: "horizontal" | "vertical";
+  startCol: number;
+  startRow: number;
+};
+export type StoredBoard = { tiles: StoredBoardTile[]; words: StoredBoardWord[] };
+
 export type Game = {
   id: string;
   playedAt: string;
   durationSeconds: number;
   playerIds: string[];
+  playerNames: string[];
   winnerId: string;
   winnerName: string;
+  board?: StoredBoard;
 };
 
 async function ensureAuthClientSide() {
@@ -72,41 +83,30 @@ export async function listGames(): Promise<Game[]> {
   const qy = query(gamesCol(), orderBy("playedAt", "desc"));
   const snap = await getDocs(qy);
 
-  // Gather unique winnerIds
-  const winnerIds = Array.from(
-    new Set(
-      snap.docs
-        .map((d) => (d.data() as any).winnerId as string)
-        .filter(Boolean)
-    )
+  // Fetch all players in a single collection read (same permission path as listPlayers)
+  const playerSnap = await getDocs(playersCol());
+  const playerMap = new Map(
+    playerSnap.docs.map((d) => [d.id, (d.data() as any).name as string])
   );
 
-  // Fetch winners
-  const winnerPairs = await Promise.all(
-    winnerIds.map(async (id) => {
-      const psnap = await getDoc(doc(playersCol(), id));
-      const name = psnap.exists() ? ((psnap.data() as any).name as string) : "Unknown";
-      return [id, name] as const;
-    })
-  );
-
-  const winnerMap = new Map(winnerPairs);
-
-  // Build games with winnerName
+  // Build games with playerNames + winnerName
   return snap.docs.map((d) => {
     const data = d.data() as any;
     const playedAt =
       data.playedAt instanceof Timestamp ? data.playedAt.toDate().toISOString() : data.playedAt;
 
+    const playerIds: string[] = data.playerIds ?? [];
     const winnerId = data.winnerId as string;
 
     return {
       id: d.id,
       playedAt,
       durationSeconds: data.durationSeconds,
-      playerIds: data.playerIds ?? [],
+      playerIds,
+      playerNames: playerIds.map((id) => playerMap.get(id) ?? "Unknown"),
       winnerId,
-      winnerName: winnerMap.get(winnerId) ?? "Unknown",
+      winnerName: playerMap.get(winnerId) ?? "Unknown",
+      board: data.board ?? undefined,
     };
   });
 }
@@ -116,9 +116,10 @@ export async function createGame(input: {
   durationSeconds: number;
   playerIds: string[];
   winnerId: string;
+  board?: StoredBoard;
 }) {
   await ensureAuthClientSide();
-  const { playedAtISO, durationSeconds, playerIds, winnerId } = input;
+  const { playedAtISO, durationSeconds, playerIds, winnerId, board } = input;
 
   if (!playerIds.length) throw new Error("Select at least 1 player.");
   if (!playerIds.includes(winnerId)) throw new Error("Winner must be in selected players.");
@@ -148,6 +149,7 @@ export async function createGame(input: {
       durationSeconds,
       playerIds,
       winnerId,
+      ...(board ? { board } : {}),
       createdAt: serverTimestamp(),
     });
 

@@ -7,8 +7,15 @@ export type OCRTile = {
   debugUrl: string;
 };
 
+export type WordResult = {
+  word: string;
+  direction: 'horizontal' | 'vertical';
+  tiles: OCRTile[];
+};
+
 export type OCRResult = {
   tiles: OCRTile[];
+  words: WordResult[];
   /** Object URL of annotated debug image — caller must revoke. */
   debugImageUrl: string;
 };
@@ -423,11 +430,94 @@ async function cropTile(
   return { blob: await canvasToPngBlob(canvas), pixels, thresh, darkRatio };
 }
 
+// ── Word detection ────────────────────────────────────────────────────────────
+// Finds words by direct bbox-proximity chaining — no row/column grouping.
+// For each tile we find its closest right-neighbour (horizontal) and closest
+// bottom-neighbour (vertical) based purely on whether the bounding boxes are
+// close and overlapping in the perpendicular axis.  Following those links
+// produces chains that become words.
+
+export function detectWords(tiles: OCRTile[]): WordResult[] {
+  if (tiles.length === 0) return [];
+
+  // Median tile size — used to scale the gap and overlap tolerances.
+  const sizes = tiles.map(t => ((t.bbox.x1 - t.bbox.x0) + (t.bbox.y1 - t.bbox.y0)) / 2);
+  const tileSize = [...sizes].sort((a, b) => a - b)[Math.floor(sizes.length / 2)];
+
+  const gapTol     = tileSize * 0.75; // max edge-to-edge gap to be "touching"
+  const overlapMin = tileSize * 0.25; // min perpendicular overlap required
+
+  // Returns the nearest tile that is directly to the right of `tile` and
+  // overlaps it vertically, or null if none is close enough.
+  const rightOf = (tile: OCRTile): OCRTile | null => {
+    let best: OCRTile | null = null;
+    let bestGap = gapTol;
+    for (const other of tiles) {
+      if (other === tile) continue;
+      if (other.bbox.x0 <= tile.bbox.x0) continue;           // must be to the right
+      const gap = other.bbox.x0 - tile.bbox.x1;
+      if (gap >= bestGap) continue;                           // not the closest
+      const yOverlap = Math.min(tile.bbox.y1, other.bbox.y1) - Math.max(tile.bbox.y0, other.bbox.y0);
+      if (yOverlap < overlapMin) continue;                    // must share vertical space
+      best = other; bestGap = gap;
+    }
+    return best;
+  };
+
+  // Returns the nearest tile directly below `tile` that overlaps it horizontally.
+  const below = (tile: OCRTile): OCRTile | null => {
+    let best: OCRTile | null = null;
+    let bestGap = gapTol;
+    for (const other of tiles) {
+      if (other === tile) continue;
+      if (other.bbox.y0 <= tile.bbox.y0) continue;           // must be below
+      const gap = other.bbox.y0 - tile.bbox.y1;
+      if (gap >= bestGap) continue;
+      const xOverlap = Math.min(tile.bbox.x1, other.bbox.x1) - Math.max(tile.bbox.x0, other.bbox.x0);
+      if (xOverlap < overlapMin) continue;                    // must share horizontal space
+      best = other; bestGap = gap;
+    }
+    return best;
+  };
+
+  const words: WordResult[] = [];
+
+  // ── Horizontal chains ─────────────────────────────────────────────────────
+  // Build the set of tiles that have a left-neighbour — they are not word starts.
+  const hasLeftNeighbour = new Set<OCRTile>();
+  for (const t of tiles) { const r = rightOf(t); if (r) hasLeftNeighbour.add(r); }
+
+  for (const start of tiles) {
+    if (hasLeftNeighbour.has(start)) continue; // middle/end of a word
+    const run: OCRTile[] = [start];
+    let cur = start;
+    for (;;) { const next = rightOf(cur); if (!next) break; run.push(next); cur = next; }
+    if (run.length >= 2)
+      words.push({ word: run.map(t => t.letter).join(''), direction: 'horizontal', tiles: run });
+  }
+
+  // ── Vertical chains ───────────────────────────────────────────────────────
+  const hasTopNeighbour = new Set<OCRTile>();
+  for (const t of tiles) { const b = below(t); if (b) hasTopNeighbour.add(b); }
+
+  for (const start of tiles) {
+    if (hasTopNeighbour.has(start)) continue;
+    const run: OCRTile[] = [start];
+    let cur = start;
+    for (;;) { const next = below(cur); if (!next) break; run.push(next); cur = next; }
+    if (run.length >= 2)
+      words.push({ word: run.map(t => t.letter).join(''), direction: 'vertical', tiles: run });
+  }
+
+  console.log('[Words]', words.map(w => `${w.word}(${w.direction[0]})`).join(' '));
+  return words;
+}
+
 // ── Debug image ───────────────────────────────────────────────────────────────
 
 async function buildDebugImage(
   srcCanvas: any, w: number, h: number,
-  detected: TileRect[], tiles: OCRTile[]
+  detected: TileRect[], tiles: OCRTile[], words: WordResult[]
 ): Promise<string> {
   // Always use a real HTMLCanvasElement here so fillText works reliably
   const dbg = document.createElement('canvas');
@@ -435,7 +525,52 @@ async function buildDebugImage(
   const ctx = dbg.getContext('2d')!;
   ctx.drawImage(srcCanvas, 0, 0);
 
-  // Draw every detected rect, coloured by whether a letter was found
+  // ── Word overlays (drawn first, behind tile boxes) ─────────────────────────
+  // Horizontal words: blue  |  Vertical words: purple
+  const PAD = 4;
+  for (const word of words) {
+    const isH = word.direction === 'horizontal';
+    const stroke = isH ? '#1565c0' : '#7b1fa2';
+    const fill   = isH ? 'rgba(21,101,192,0.13)' : 'rgba(123,31,162,0.13)';
+
+    // Bounding box of all tiles in this word
+    const wx0 = Math.min(...word.tiles.map(t => t.bbox.x0)) - PAD;
+    const wy0 = Math.min(...word.tiles.map(t => t.bbox.y0)) - PAD;
+    const wx1 = Math.max(...word.tiles.map(t => t.bbox.x1)) + PAD;
+    const wy1 = Math.max(...word.tiles.map(t => t.bbox.y1)) + PAD;
+    const ww = wx1 - wx0, wh = wy1 - wy0;
+    const r = 6; // corner radius
+
+    // Filled rounded rect
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.roundRect(wx0, wy0, ww, wh, r);
+    ctx.fill();
+
+    // Stroked rounded rect
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(wx0, wy0, ww, wh, r);
+    ctx.stroke();
+
+    // Word label: positioned above (horizontal) or to the left (vertical)
+    const tileH = word.tiles[0].bbox.y1 - word.tiles[0].bbox.y0;
+    const fs = Math.max(9, Math.round(tileH * 0.32));
+    ctx.font = `bold ${fs}px monospace`;
+    ctx.fillStyle = stroke;
+    if (isH) {
+      ctx.fillText(word.word, wx0 + 2, wy0 - 3);
+    } else {
+      ctx.save();
+      ctx.translate(wx0 - 3, wy1);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(word.word, 2, 0);
+      ctx.restore();
+    }
+  }
+
+  // ── Tile boxes (drawn on top of word overlays) ─────────────────────────────
   for (const rect of detected) {
     const match = tiles.find(t =>
       t.bbox.x0 === rect.x0 && t.bbox.y0 === rect.y0
@@ -495,8 +630,8 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
   console.log('[OCR] tile rects detected:', tileRects.length);
 
   if (tileRects.length === 0) {
-    const debugImageUrl = await buildDebugImage(srcCanvas, W, H, [], []);
-    return { tiles: [], debugImageUrl };
+    const debugImageUrl = await buildDebugImage(srcCanvas, W, H, [], [], []);
+    return { tiles: [], words: [], debugImageUrl };
   }
 
   // ── Tesseract: one worker, PSM 10 (single character), LSTM only ──────────────
@@ -650,9 +785,12 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
     try { await worker.terminate(); } catch {}
   }
 
-  // 5. Build annotated debug image
-  const debugImageUrl = await buildDebugImage(srcCanvas, W, H, tileRects, tiles);
+  // 5. Detect words from tile positions
+  const words = detectWords(tiles);
 
-  console.log(`[OCR] done — ${tiles.length} letters from ${tileRects.length} detected tiles`);
-  return { tiles, debugImageUrl };
+  // 6. Build annotated debug image
+  const debugImageUrl = await buildDebugImage(srcCanvas, W, H, tileRects, tiles, words);
+
+  console.log(`[OCR] done — ${tiles.length} letters, ${words.length} words`);
+  return { tiles, words, debugImageUrl };
 }

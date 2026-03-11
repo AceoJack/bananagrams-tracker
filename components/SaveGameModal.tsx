@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import type { Player } from "../db/queries.firestore";
+import type { Player, StoredBoard } from "../db/queries.firestore";
 import { createGame, createPlayer, listPlayers } from "../db/queries.firestore";
 import type { OCRResult } from "../utils/ocr";
 import { runOCR } from "../utils/ocr";
 import { AddPlayerSheet } from "./AddPlayerSheet";
+import { BoardEditorModal, ocrToBoard } from "./BoardEditorModal";
+import type { BoardCell, StoredBoardWord } from "./BoardEditorModal";
 import { PlayerMultiSelect } from "./PlayerMultiSelect";
 import * as Haptics from "expo-haptics";
 
@@ -24,11 +26,13 @@ export function SaveGameModal({
   const [ocrRunning, setOcrRunning] = useState(false);
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [boardEditorOpen, setBoardEditorOpen] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [winnerId, setWinnerId] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [savedBoard, setSavedBoard] = useState<StoredBoard | null>(null);
 
   const objectUrls = useRef<string[]>([]);
   const track = (url: string) => { objectUrls.current.push(url); return url; };
@@ -58,6 +62,9 @@ export function SaveGameModal({
         track(result.debugImageUrl);
         result.tiles.forEach((t) => track(t.debugUrl));
         setOcrResult(result);
+        if (result.tiles.length > 0) {
+          setSavedBoard(ocrToBoard(result.tiles, result.words));
+        }
       } catch (e) {
         console.error("[OCR] failed:", e);
         Alert.alert("OCR failed", String(e));
@@ -80,6 +87,7 @@ export function SaveGameModal({
       revokeAll();
       setPreviewUrl(null);
       setOcrResult(null);
+      setSavedBoard(null);
     }
   }, [visible]);
 
@@ -107,7 +115,7 @@ export function SaveGameModal({
     if (!winnerId) { Alert.alert("Select winner", "Pick the winner."); return; }
     setSaving(true);
     try {
-      await createGame({ playedAtISO, durationSeconds, playerIds: selectedIds, winnerId });
+      await createGame({ playedAtISO, durationSeconds, playerIds: selectedIds, winnerId, board: savedBoard ?? undefined });
       await onSaved();
       onClose();
     } catch (e: any) {
@@ -122,6 +130,7 @@ export function SaveGameModal({
     : null;
 
   return (
+    <>
     <Modal visible={visible} animationType="fade" transparent>
       <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", padding: 20 }}>
         <View style={{
@@ -169,6 +178,23 @@ export function SaveGameModal({
                           style={{ width: "100%", height: 200, borderRadius: 8, backgroundColor: "#f0f0f0" }}
                           resizeMode="contain"
                         />
+                      </View>
+
+                      {/* Edit board button + saved indicator */}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                        <Pressable
+                          onPress={() => setBoardEditorOpen(true)}
+                          style={{ alignSelf: "flex-start", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: "#1a73e8" }}
+                        >
+                          <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>
+                            {savedBoard ? "Re-edit Board" : "Edit Board"}
+                          </Text>
+                        </Pressable>
+                        {savedBoard && (
+                          <Text style={{ fontSize: 12, color: "#388E3C" }}>
+                            {savedBoard.tiles.length} tiles, {savedBoard.words.length} words saved
+                          </Text>
+                        )}
                       </View>
 
                       {/* Summary row */}
@@ -296,5 +322,17 @@ export function SaveGameModal({
       </View>
 
     </Modal>
+
+    <BoardEditorModal
+      visible={boardEditorOpen}
+      onClose={() => setBoardEditorOpen(false)}
+      tiles={ocrResult?.tiles ?? []}
+      words={ocrResult?.words ?? []}
+      initialCells={savedBoard?.tiles}
+      onSave={(cells: BoardCell[], words: StoredBoardWord[]) => {
+        setSavedBoard({ tiles: cells, words });
+      }}
+    />
+    </>
   );
 }
