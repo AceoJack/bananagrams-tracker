@@ -165,8 +165,6 @@ export function SaveGameModal({
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
-    // @ts-ignore
-    input.capture = "environment";
 
     input.onchange = async () => {
       const file = input.files?.[0];
