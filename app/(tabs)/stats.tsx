@@ -1,6 +1,7 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
+import { FadeInView } from "../../components/FadeInView";
 import { listGames, type Game } from "../../db/queries.firestore";
 import { GameDetailModal } from "../../components/GameDetailModal";
 import { formatDateTime, formatDuration } from "../../utils/format";
@@ -27,7 +28,7 @@ export default function StatsScreen() {
   );
 
   return (
-    <>
+    <FadeInView>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         <Text style={{ fontSize: 24, fontWeight: "700" }}>Game History</Text>
 
@@ -73,6 +74,6 @@ export default function StatsScreen() {
         visible={selectedGame !== null}
         onClose={() => setSelectedGame(null)}
       />
-    </>
+    </FadeInView>
   );
 }
