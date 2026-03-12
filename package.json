@@ -16,6 +16,7 @@
     "@react-navigation/bottom-tabs": "^7.15.5",
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.33",
+    "canvas-confetti": "^1.9.4",
     "eas-cli": "^18.0.6",
     "expo": "~54.0.33",
     "expo-constants": "~18.0.13",
@@ -47,6 +48,7 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",
     "typescript": "~5.9.2"

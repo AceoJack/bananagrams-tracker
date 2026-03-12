@@ -511,6 +511,7 @@ export function detectWords(tiles: OCRTile[]): WordResult[] {
 
   console.log('[Words]', words.map(w => `${w.word}(${w.direction[0]})`).join(' '));
   return words;
+
 }
 
 // ── Debug image ───────────────────────────────────────────────────────────────
@@ -600,7 +601,10 @@ async function buildDebugImage(
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export async function runOCR(image: Blob): Promise<OCRResult> {
+export async function runOCR(
+  image: Blob,
+  onProgress?: (identified: number, detected: number) => void,
+): Promise<OCRResult> {
   console.log('[OCR] start — input blob size:', image.size);
 
   // 1. Decode + scale image (cap at 1200px to keep processing fast)
@@ -628,6 +632,7 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
   // 3. Find tile bounding boxes via letter-blob detection
   const tileRects = detectTileRects(gray, W, H);
   console.log('[OCR] tile rects detected:', tileRects.length);
+  onProgress?.(0, tileRects.length);
 
   if (tileRects.length === 0) {
     const debugImageUrl = await buildDebugImage(srcCanvas, W, H, [], [], []);
@@ -780,6 +785,7 @@ export async function runOCR(image: Blob): Promise<OCRResult> {
         debugUrl,
       });
       console.log(`[OCR] tile ${i + 1}/${tileRects.length}: ${parsed.letter || '?'} (${parsed.confidence}%)`);
+      onProgress?.(i + 1, tileRects.length);
     }
   } finally {
     try { await worker.terminate(); } catch {}

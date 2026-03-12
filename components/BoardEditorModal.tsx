@@ -4,9 +4,9 @@ import type { OCRTile, WordResult } from "../utils/ocr";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type CellSource = "ocr" | "manual";
-type CellState = { letter: string; source: CellSource };
-type CellKey = string; // `${col},${row}`
+export type CellSource = "ocr" | "manual";
+export type CellState = { letter: string; source: CellSource; confidence?: number };
+export type CellKey = string; // `${col},${row}`
 
 export type BoardCell = { letter: string; col: number; row: number };
 export type StoredBoardWord = {
@@ -29,7 +29,7 @@ export function ocrToBoard(
   return { tiles: boardTiles, words: deriveWordsFromGrid(cells) };
 }
 
-function deriveWordsFromGrid(cells: Map<CellKey, CellState>): StoredBoardWord[] {
+export function deriveWordsFromGrid(cells: Map<CellKey, CellState>): StoredBoardWord[] {
   const words: StoredBoardWord[] = [];
 
   // Collect all occupied positions
@@ -99,7 +99,7 @@ function deriveWordsFromGrid(cells: Map<CellKey, CellState>): StoredBoardWord[] 
 // bottom-neighbour) through the word graph.  Tiles not connected through any
 // word are re-anchored using the pixel transform of the main connected group.
 
-function initGrid(tiles: OCRTile[], words: WordResult[]): {
+export function initGrid(tiles: OCRTile[], words: WordResult[]): {
   cells: Map<CellKey, CellState>;
   cols: number;
   rows: number;
@@ -199,7 +199,7 @@ function initGrid(tiles: OCRTile[], words: WordResult[]): {
 
   const cells = new Map<CellKey, CellState>();
   for (const [tile, { col, row }] of pos) {
-    cells.set(`${col - minCol + 1},${row - minRow + 1}`, { letter: tile.letter, source: "ocr" });
+    cells.set(`${col - minCol + 1},${row - minRow + 1}`, { letter: tile.letter, source: "ocr", confidence: tile.confidence });
   }
 
   const allCols = [...cells.keys()].map(k => parseInt(k.split(",")[0]));
