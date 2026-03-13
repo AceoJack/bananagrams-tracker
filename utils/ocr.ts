@@ -241,10 +241,11 @@ function detectTileRects(rgba: Uint8ClampedArray, w: number, h: number): TileRec
   // Isolation filter: every real tile should have at least one neighbour within
   // 2.5× the tile size (tiles are adjacent on the board). Blobs further away
   // than that are false positives — shadows, table edges, background marks, etc.
+  let postIsolation = deduped;
   if (deduped.length > 1) {
     const centers = deduped.map(t => ({ x: (t.x0 + t.x1) / 2, y: (t.y0 + t.y1) / 2 }));
     const maxDist = tileSize * 2.5;
-    const filtered = deduped.filter((_, i) => {
+    postIsolation = deduped.filter((_, i) => {
       const c = centers[i];
       return centers.some((n, j) => {
         if (j === i) return false;
@@ -252,11 +253,31 @@ function detectTileRects(rgba: Uint8ClampedArray, w: number, h: number): TileRec
         return Math.sqrt(dx * dx + dy * dy) <= maxDist;
       });
     });
-    console.log('[TileDetect] Tiles after isolation filter:', filtered.length);
-    return filtered;
+    console.log('[TileDetect] Tiles after isolation filter:', postIsolation.length);
   }
 
-  return deduped;
+  // ── Centroid outlier filter ───────────────────────────────────────────────
+  // False positives in the background often survive the isolation filter when
+  // two of them happen to be near each other. This pass finds the centre of mass
+  // of the surviving tiles and drops any tile whose distance from that centre
+  // exceeds 3× the median distance — i.e. genuine outliers from the main cluster.
+  if (postIsolation.length > 3) {
+    const cs = postIsolation.map(t => ({ x: (t.x0 + t.x1) / 2, y: (t.y0 + t.y1) / 2 }));
+    const cx = cs.reduce((s, c) => s + c.x, 0) / cs.length;
+    const cy = cs.reduce((s, c) => s + c.y, 0) / cs.length;
+    const dists = cs.map(c => Math.sqrt((c.x - cx) ** 2 + (c.y - cy) ** 2));
+    const sortedDists = [...dists].sort((a, b) => a - b);
+    const medDist = sortedDists[Math.floor(sortedDists.length / 2)];
+    // Threshold: at least 4 tile-widths from centre, or 3× median — whichever is larger.
+    // The tileSize floor prevents over-trimming on small/compact boards.
+    const threshold = Math.max(tileSize * 4, medDist * 3);
+    const centroidFiltered = postIsolation.filter((_, i) => dists[i] <= threshold);
+    console.log(`[TileDetect] Tiles after centroid filter: ${postIsolation.length} → ${centroidFiltered.length}`,
+      `| centre=(${cx.toFixed(0)},${cy.toFixed(0)}) medDist=${medDist.toFixed(0)} threshold=${threshold.toFixed(0)}`);
+    return centroidFiltered;
+  }
+
+  return postIsolation;
 }
 
 // ── Morphological operations ──────────────────────────────────────────────────
