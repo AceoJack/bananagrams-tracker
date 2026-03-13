@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { Audio } from "expo-av";
 import type { Player, StoredBoard } from "../db/queries.firestore";
 import { createGame, createPlayer, listPlayers } from "../db/queries.firestore";
 import type { OCRResult } from "../utils/ocr";
@@ -24,6 +25,22 @@ function CelebrationOverlay({ type, onDone }: { type: "bananas" | "rotten"; onDo
       Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
     ]).start();
 
+    // Play sound
+    let soundObj: Audio.Sound | null = null;
+    (async () => {
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          isBananas
+            ? require("../assets/sounds/bananas.mp3")
+            : require("../assets/sounds/rotten-bananas.mp3")
+        );
+        soundObj = sound;
+        await sound.playAsync();
+      } catch (e) {
+        // Sound is optional — silently ignore errors
+      }
+    })();
+
     // Fire confetti on web for valid boards
     if (type === "bananas" && Platform.OS === "web") {
       import("canvas-confetti").then(({ default: confetti }) => {
@@ -41,7 +58,10 @@ function CelebrationOverlay({ type, onDone }: { type: "bananas" | "rotten"; onDo
       Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(onDone);
     }, 2800);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      soundObj?.unloadAsync();
+    };
   }, []);
 
   const isBananas = type === "bananas";
@@ -53,7 +73,15 @@ function CelebrationOverlay({ type, onDone }: { type: "bananas" | "rotten"; onDo
         onPress={() => Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(onDone)}
       >
         <Animated.View style={{ opacity, transform: [{ scale }], alignItems: "center" }}>
-          <Text style={{ fontSize: 64, marginBottom: 8 }}>{isBananas ? "🍌" : "🤢"}</Text>
+          {isBananas ? (
+            <Text style={{ fontSize: 64, marginBottom: 8 }}>🍌</Text>
+          ) : (
+            <Image
+              source={require("../assets/images/rotten-bananas.png")}
+              style={{ width: 80, height: 80, marginBottom: 8 }}
+              resizeMode="contain"
+            />
+          )}
           <View style={{
             paddingHorizontal: 36, paddingVertical: 20, borderRadius: 20,
             backgroundColor: isBananas ? "#FFF8E1" : "#EFEBE9",
