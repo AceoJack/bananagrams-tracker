@@ -612,6 +612,41 @@ export function SaveGameModal({
                     <Text style={{ color: "#666" }}>OCR is web-only for now.</Text>
                   )}
                 </View>
+
+                {/* ── Audio test (debug) ── */}
+                <View style={{ borderTopWidth: 1, borderTopColor: "#f0f0f0", paddingTop: 12, gap: 6 }}>
+                  <Text style={{ fontSize: 11, color: "#bbb" }}>Sound test</Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {(["bananas", "rotten"] as const).map((which) => (
+                      <Pressable
+                        key={which}
+                        onPress={async () => {
+                          try {
+                            if (Platform.OS === "web") {
+                              const url = which === "bananas"
+                                ? require("../assets/sounds/bananas.mp3")
+                                : require("../assets/sounds/rotten-bananas.mp3");
+                              const audio = new (window as any).Audio(url);
+                              audio.play();
+                            } else {
+                              await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: false });
+                              const source = which === "bananas"
+                                ? require("../assets/sounds/bananas.mp3")
+                                : require("../assets/sounds/rotten-bananas.mp3");
+                              const { sound } = await Audio.Sound.createAsync(source, { shouldPlay: true });
+                              setTimeout(() => sound.unloadAsync(), 5000);
+                            }
+                          } catch (e) {
+                            console.warn("Test sound failed:", e);
+                          }
+                        }}
+                        style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#f3f3f3", borderRadius: 8, borderWidth: 1, borderColor: "#e0e0e0" }}
+                      >
+                        <Text style={{ fontSize: 12, color: "#555" }}>{which === "bananas" ? "🍌 Bananas" : "🤢 Rotten"}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
               </ScrollView>
             )}
 
