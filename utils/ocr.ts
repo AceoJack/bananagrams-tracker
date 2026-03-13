@@ -171,12 +171,14 @@ function detectTileRects(rgba: Uint8ClampedArray, w: number, h: number): TileRec
   console.log('[TileDetect] Raw dark blobs:', blobs.length);
 
   // Filter to letter-sized blobs:
-  //   - height between 1/60 and 1/6 of image width  (covers a huge range of zoom levels)
-  //   - width at least 15% of height  (excludes single-pixel vertical lines)
+  //   - height between 1/80 and 1/6 of image width
+  //     (lowered from 1/60 → 1/80 so glare-split letter fragments aren't dropped)
+  //   - width at least 6% of height
+  //     (lowered from 15% → 6% so thin strokes like 'I' aren't rejected)
   //   - width at most 2.5× height     (excludes wide horizontal smears)
-  //   - fill factor > 5%              (excludes very sparse noise)
+  //   - fill factor > 3%              (relaxed from 5% for thin strokes)
   //   - area < 8% of image            (excludes large background blobs)
-  const minH = Math.max(4, w / 60);
+  const minH = Math.max(4, w / 80);
   const maxH = w / 6;
   const maxArea = w * h * 0.08;
 
@@ -185,8 +187,8 @@ function detectTileRects(rgba: Uint8ClampedArray, w: number, h: number): TileRec
     const bh = b.y1 - b.y0 + 1, bw = b.x1 - b.x0 + 1;
     if (bh < minH) { rejTooShort++; return false; }
     if (bh > maxH) { rejTooTall++; return false; }
-    if (bw < bh * 0.15 || bw > bh * 2.5) { rejAspect++; return false; }
-    if (b.area < bw * bh * 0.05) { rejFill++; return false; }
+    if (bw < bh * 0.06 || bw > bh * 2.5) { rejAspect++; return false; }
+    if (b.area < bw * bh * 0.03) { rejFill++; return false; }
     if (b.area > maxArea) { rejArea++; return false; }
     return true;
   });
@@ -417,12 +419,14 @@ async function cropTile(
     dark[i] = tileGray[i] < thresh ? 255 : 0;
   }
 
-  // Keep only the largest dark component (the letter body).
-  // Dilate 1px to thicken thin strokes, then optionally erode 1px (closing)
-  // to cancel the net thickening while still filling tiny threshold gaps.
-  // Closing prevents dilation from sealing the loops of P, B, R, D.
-  const largest = largestDarkComponent(dark, SIZE, SIZE);
-  const dilated = dilateMask(largest, SIZE);
+  // Dilate 1px to connect thin strokes, then optionally erode (closing).
+  // We no longer call largestDarkComponent here — for thin-stroked letters like
+  // R and P the vertical stroke, bowl, and leg can be slightly disconnected after
+  // thresholding. Keeping only the largest component was discarding the other
+  // strokes, leaving Tesseract with just a vertical bar → 0% confidence.
+  // Since we're operating on a single tightly-cropped tile there's minimal
+  // background noise to worry about.
+  const dilated = dilateMask(dark, SIZE);
   const letterMask = erode ? erodeMask(dilated, SIZE) : dilated;
 
   // Write clean binary image back to canvas and measure inner dark ratio
@@ -726,6 +730,18 @@ export async function runOCR(
       checkCancelled();
       const rect = tileRects[i];
 
+      // A crop whose inner region is >75% dark is a corrupted/all-black image.
+      // Thick letters like R, P, B, M genuinely fill 60-70% of the inner region
+      // after dilation — so 0.75 gives them room while still blocking truly black
+      // images (which sit at ~0.90+) that Tesseract misreads as 'H' or 'M'.
+      const DARK_RATIO_MAX = 0.75;
+      const isBetterCrop = (
+        candidate: { parsed: ReturnType<typeof parseLetter>; crop: Awaited<ReturnType<typeof cropTile>> },
+        current:   { parsed: ReturnType<typeof parseLetter>; crop: Awaited<ReturnType<typeof cropTile>> },
+      ) =>
+        candidate.crop.darkRatio <= DARK_RATIO_MAX &&
+        candidate.parsed.confidence > current.parsed.confidence;
+
       // First attempt with adaptive Otsu
       let crop = await cropTile(srcCanvas, rect);
       let parsed = parseLetter(await worker.recognize(crop.blob));
@@ -745,7 +761,7 @@ export async function runOCR(
             if (t < MIN_THRESH || t > MAX_THRESH) continue;
             const retryCrop = await cropTile(srcCanvas, rect, t);
             const retryParsed = parseLetter(await worker.recognize(retryCrop.blob));
-            if (retryParsed.confidence > best.parsed.confidence) {
+            if (isBetterCrop({ parsed: retryParsed, crop: retryCrop }, best)) {
               best = { parsed: retryParsed, crop: retryCrop };
             }
             if (best.parsed.confidence >= 50) break;
@@ -767,7 +783,7 @@ export async function runOCR(
         for (const p of [8, 12, 16, 20, 25, 6, 30]) {
           const pCrop = await cropTile(srcCanvas, rect, undefined, p);
           const pParsed = parseLetter(await worker.recognize(pCrop.blob));
-          if (pParsed.confidence > best.parsed.confidence) {
+          if (isBetterCrop({ parsed: pParsed, crop: pCrop }, best)) {
             best = { parsed: pParsed, crop: pCrop };
             console.log(`[OCR] tile ${i + 1}: percentile ${p}% → ${pParsed.letter} (${pParsed.confidence}%)`);
           }
@@ -787,7 +803,7 @@ export async function runOCR(
           for (const erode of [false, true]) {
             const iCrop = await cropTile(srcCanvas, rect, undefined, undefined, inset, erode);
             const iParsed = parseLetter(await worker.recognize(iCrop.blob));
-            if (iParsed.confidence > best.parsed.confidence) {
+            if (isBetterCrop({ parsed: iParsed, crop: iCrop }, best)) {
               best = { parsed: iParsed, crop: iCrop };
               console.log(`[OCR] tile ${i + 1}: inset ${inset} erode=${erode} → ${iParsed.letter} (${iParsed.confidence}%)`);
             }
@@ -798,8 +814,71 @@ export async function runOCR(
         crop = best.crop;
       }
 
-      if (parsed.confidence < 50) {
+      // Phase 4: if still 0% confidence, try PSM 8 (single word) without
+      // whitelist — sometimes PSM 10 rejects complex multi-stroke letters
+      // (R, P, B) entirely and PSM 8 gives Tesseract more flexibility.
+      if (parsed.confidence === 0) {
+        try {
+          if (typeof worker.setParameters === 'function') {
+            await worker.setParameters({
+              tessedit_char_whitelist: '',
+              tessedit_pageseg_mode: '8',
+              tessedit_ocr_engine_mode: '1',
+            });
+          }
+          const p4Crop = await cropTile(srcCanvas, rect);
+          const p4Raw = await worker.recognize(p4Crop.blob);
+          const p4Parsed = parseLetter(p4Raw);
+
+          // Log the full raw Tesseract output so we can see exactly what it found
+          console.log(`[OCR] tile ${i + 1} PSM8 raw:`,
+            `text="${(p4Raw.data?.text ?? '').trim()}"`,
+            `pageConf=${p4Raw.data?.confidence}`,
+            `symbols=`, (p4Raw.data?.symbols ?? []).map((s: any) => `"${s.text}"@${s.confidence}%`),
+            `darkRatio=${p4Crop.darkRatio.toFixed(2)}`,
+            `thresh=${p4Crop.thresh}`,
+          );
+
+          if (p4Parsed.confidence > parsed.confidence) {
+            parsed = p4Parsed;
+            crop = p4Crop;
+            console.log(`[OCR] tile ${i + 1}: PSM8 rescued → ${parsed.letter} (${parsed.confidence}%)`);
+          }
+
+          // Restore original parameters
+          if (typeof worker.setParameters === 'function') {
+            await worker.setParameters({
+              tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZl1|0',
+              tessedit_pageseg_mode: '10',
+              tessedit_ocr_engine_mode: '1',
+            });
+          }
+        } catch (e) {
+          console.warn(`[OCR] tile ${i + 1}: PSM8 attempt failed`, e);
+        }
+      }
+
+      if (parsed.confidence === 0) {
+        // Log everything we know about this tile to help diagnose
+        const rawResult = await worker.recognize(crop.blob);
+        console.warn(`[OCR] tile ${i + 1}: FINAL 0% — full Tesseract dump:`,
+          `text="${(rawResult.data?.text ?? '').trim()}"`,
+          `pageConf=${rawResult.data?.confidence}`,
+          `symbols=`, (rawResult.data?.symbols ?? []).map((s: any) => `"${s.text}"@${s.confidence}%`),
+          `words=`, (rawResult.data?.words ?? []).map((w: any) => `"${w.text}"@${w.confidence}%`),
+          `darkRatio=${crop.darkRatio.toFixed(2)}`,
+          `thresh=${crop.thresh}`,
+          `rect=${JSON.stringify(rect)}`,
+        );
+      } else if (parsed.confidence < 50) {
         console.log(`[OCR] tile ${i + 1}: best → ${parsed.letter || '?'} (${parsed.confidence}%)`);
+      }
+
+      // Final sanity check: if the best crop is still a corrupted black image,
+      // zero out the result rather than emit a wrong letter with false confidence.
+      if (crop.darkRatio > DARK_RATIO_MAX) {
+        console.log(`[OCR] tile ${i + 1}: discarded — darkRatio ${crop.darkRatio.toFixed(2)} > ${DARK_RATIO_MAX} (black image)`);
+        parsed = { letter: '?', confidence: 0 };
       }
 
       const debugUrl = URL.createObjectURL(crop.blob);
