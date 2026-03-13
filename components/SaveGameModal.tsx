@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, Image, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Animated, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { Player, StoredBoard } from "../db/queries.firestore";
 import { createGame, createPlayer, listPlayers } from "../db/queries.firestore";
 import type { OCRResult } from "../utils/ocr";
@@ -733,60 +733,113 @@ export function SaveGameModal({
 
                 {/* Letter picker — shown when a cell is selected */}
                 {selecting && (
-                  <View style={{
-                    borderTopWidth: 1, borderTopColor: "#e0e0e0",
-                    backgroundColor: "#fff", paddingHorizontal: 12, paddingTop: 10, paddingBottom: 16,
-                  }}>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <Text style={{ fontSize: 13, color: "#555" }}>
-                        {editorCells.get(`${selecting.col},${selecting.row}`)
-                          ? `Change letter at (${selecting.col}, ${selecting.row})`
-                          : `Add tile at (${selecting.col}, ${selecting.row})`}
-                      </Text>
-                      <Pressable onPress={() => setSelecting(null)} style={{ padding: 4 }}>
-                        <Text style={{ fontSize: 16, color: "#888" }}>✕</Text>
-                      </Pressable>
+                  Platform.OS === "web" ? (
+                    /* ── Web: custom QWERTY keyboard ── */
+                    <View style={{
+                      borderTopWidth: 1, borderTopColor: "#e0e0e0",
+                      backgroundColor: "#fff", paddingHorizontal: 12, paddingTop: 10, paddingBottom: 16,
+                    }}>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <Text style={{ fontSize: 13, color: "#555" }}>
+                          {editorCells.get(`${selecting.col},${selecting.row}`)
+                            ? `Change letter at (${selecting.col}, ${selecting.row})`
+                            : `Add tile at (${selecting.col}, ${selecting.row})`}
+                        </Text>
+                        <Pressable onPress={() => setSelecting(null)} style={{ padding: 4 }}>
+                          <Text style={{ fontSize: 16, color: "#888" }}>✕</Text>
+                        </Pressable>
+                      </View>
+
+                      <View style={{ gap: KEY_GAP }}>
+                        {KEYBOARD_ROWS.map((row, rowIndex) => (
+                          <View key={rowIndex} style={{ flexDirection: "row", gap: KEY_GAP, marginLeft: ROW_OFFSETS[rowIndex] }}>
+                            {row.map((l) => (
+                              <Pressable
+                                key={l}
+                                onPress={() => handleLetterSelect(l)}
+                                style={{
+                                  width: KEY_SIZE, height: KEY_SIZE + 4,
+                                  backgroundColor: "#f5f5f5",
+                                  borderRadius: 5,
+                                  borderWidth: 1, borderColor: "#ddd",
+                                  justifyContent: "center", alignItems: "center",
+                                }}
+                              >
+                                <Text style={{ fontWeight: "700", fontSize: 14 }}>{l}</Text>
+                              </Pressable>
+                            ))}
+
+                            {rowIndex === 2 && editorCells.get(`${selecting.col},${selecting.row}`) && (
+                              <Pressable
+                                onPress={handleClearCell}
+                                style={{
+                                  width: KEY_SIZE + 10, height: KEY_SIZE + 4,
+                                  backgroundColor: "#FFEBEE",
+                                  borderRadius: 5,
+                                  borderWidth: 1, borderColor: "#FFCDD2",
+                                  justifyContent: "center", alignItems: "center",
+                                  marginLeft: KEY_GAP,
+                                }}
+                              >
+                                <Text style={{ fontSize: 15, color: "#C62828" }}>⌫</Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        ))}
+                      </View>
                     </View>
-
-                    <View style={{ gap: KEY_GAP }}>
-                      {KEYBOARD_ROWS.map((row, rowIndex) => (
-                        <View key={rowIndex} style={{ flexDirection: "row", gap: KEY_GAP, marginLeft: ROW_OFFSETS[rowIndex] }}>
-                          {row.map((l) => (
-                            <Pressable
-                              key={l}
-                              onPress={() => handleLetterSelect(l)}
-                              style={{
-                                width: KEY_SIZE, height: KEY_SIZE + 4,
-                                backgroundColor: "#f5f5f5",
-                                borderRadius: 5,
-                                borderWidth: 1, borderColor: "#ddd",
-                                justifyContent: "center", alignItems: "center",
-                              }}
-                            >
-                              <Text style={{ fontWeight: "700", fontSize: 14 }}>{l}</Text>
-                            </Pressable>
-                          ))}
-
-                          {/* Delete key at end of bottom row */}
-                          {rowIndex === 2 && editorCells.get(`${selecting.col},${selecting.row}`) && (
-                            <Pressable
-                              onPress={handleClearCell}
-                              style={{
-                                width: KEY_SIZE + 10, height: KEY_SIZE + 4,
-                                backgroundColor: "#FFEBEE",
-                                borderRadius: 5,
-                                borderWidth: 1, borderColor: "#FFCDD2",
-                                justifyContent: "center", alignItems: "center",
-                                marginLeft: KEY_GAP,
-                              }}
-                            >
-                              <Text style={{ fontSize: 15, color: "#C62828" }}>⌫</Text>
-                            </Pressable>
-                          )}
+                  ) : (
+                    /* ── Mobile: native keyboard via TextInput ── */
+                    <KeyboardAvoidingView behavior="padding">
+                      <View style={{
+                        borderTopWidth: 1, borderTopColor: "#e0e0e0",
+                        backgroundColor: "#fff", padding: 12, gap: 10,
+                      }}>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                          <Text style={{ fontSize: 13, color: "#555" }}>
+                            {editorCells.get(`${selecting.col},${selecting.row}`) ? "Change letter" : "Add tile"}
+                          </Text>
+                          <Pressable
+                            onPress={() => { Keyboard.dismiss(); setSelecting(null); }}
+                            style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: "#111", borderRadius: 8 }}
+                          >
+                            <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>Done</Text>
+                          </Pressable>
                         </View>
-                      ))}
-                    </View>
-                  </View>
+
+                        <TextInput
+                          autoFocus
+                          maxLength={1}
+                          autoCapitalize="characters"
+                          autoCorrect={false}
+                          returnKeyType="done"
+                          placeholder="Type a letter…"
+                          placeholderTextColor="#bbb"
+                          onChangeText={(text) => {
+                            const letter = text.replace(/[^A-Za-z]/g, "").toUpperCase().slice(-1);
+                            if (!letter) return;
+                            Keyboard.dismiss();
+                            handleLetterSelect(letter);
+                          }}
+                          onSubmitEditing={() => { Keyboard.dismiss(); setSelecting(null); }}
+                          style={{
+                            borderWidth: 1, borderColor: "#ddd", borderRadius: 10,
+                            padding: 14, fontSize: 28, fontWeight: "700",
+                            textAlign: "center", backgroundColor: "#f9f9f9", color: "#111",
+                          }}
+                        />
+
+                        {editorCells.get(`${selecting.col},${selecting.row}`) && (
+                          <Pressable
+                            onPress={() => { Keyboard.dismiss(); handleClearCell(); }}
+                            style={{ padding: 12, backgroundColor: "#FFEBEE", borderRadius: 8, alignItems: "center", borderWidth: 1, borderColor: "#FFCDD2" }}
+                          >
+                            <Text style={{ color: "#C62828", fontWeight: "600" }}>Clear tile</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    </KeyboardAvoidingView>
+                  )
                 )}
               </View>
             )}
