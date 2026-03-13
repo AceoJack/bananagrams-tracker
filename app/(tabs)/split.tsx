@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Animated, Pressable, Text, View } from "react-native";
 import { SaveGameModal } from "../../components/SaveGameModal";
+import { OcrTestModal } from "../../components/OcrTestModal";
 import { FadeInView } from "../../components/FadeInView";
 import { formatDuration } from "../../utils/format";
 import * as Haptics from "expo-haptics";
@@ -12,6 +13,7 @@ export default function SplitScreen() {
 
   const [saveOpen, setSaveOpen] = useState(false);
   const [playedAtISO, setPlayedAtISO] = useState<string>("");
+  const [ocrTestOpen, setOcrTestOpen] = useState(false);
 
   useEffect(() => {
     if (!running || startMs === null) return;
@@ -104,6 +106,16 @@ export default function SplitScreen() {
           </Pressable>
         )}
       </Animated.View>
+
+      {/* Dev tool — OCR test button */}
+      <Pressable
+        onPress={() => setOcrTestOpen(true)}
+        style={{ alignSelf: "center", marginTop: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#f0f0f0", borderRadius: 10, borderWidth: 1, borderColor: "#ddd" }}
+      >
+        <Text style={{ fontSize: 11, color: "#888" }}>🔬 OCR Test</Text>
+      </Pressable>
+
+      <OcrTestModal visible={ocrTestOpen} onClose={() => setOcrTestOpen(false)} />
 
       <SaveGameModal
         visible={saveOpen}

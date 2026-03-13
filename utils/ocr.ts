@@ -129,13 +129,43 @@ function nms(boxes: TileRect[]): TileRect[] {
   return sorted.filter((_, i) => keep[i]);
 }
 
-function detectTileRects(gray: Uint8Array, w: number, h: number): TileRect[] {
-  const thresh = otsu(gray);
-  console.log('[TileDetect] Otsu threshold:', thresh);
+// Maximum value each RGB channel can be for a pixel to count as ink.
+// Bananagram letters are printed in near-black ink (R≈G≈B≈10-25).
+// Keeping this low means shadows, cream backgrounds, and table surfaces
+// are all ignored — only the actual letter strokes get marked as dark.
+const INK_MAX = 60;
 
-  // Mark dark pixels (letter strokes are the darkest thing on a tile)
+function detectTileRects(rgba: Uint8ClampedArray, w: number, h: number): TileRect[] {
+  // Mark ink pixels: all three channels must be <= INK_MAX.
+  // This is much more selective than Otsu and doesn't get thrown off by
+  // uneven lighting, shadows, or the cream tile background.
+  // ── Pixel value distribution diagnostic ─────────────────────────────────
+  // Logs how many pixels fall below each brightness bracket so we can see
+  // where the actual ink lives vs shadows vs background.
+  const brackets = [20, 30, 40, 50, 60, 80, 100, 128];
+  const counts = new Array(brackets.length).fill(0);
+  let minVal = 255;
+  for (let i = 0; i < w * h; i++) {
+    const v = Math.max(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]); // max channel
+    if (v < minVal) minVal = v;
+    for (let b = 0; b < brackets.length; b++) {
+      if (v <= brackets[b]) { counts[b]++; break; }
+    }
+  }
+  console.log('[TileDetect] Darkest pixel max-channel:', minVal);
+  console.log('[TileDetect] Pixel distribution (max-channel ≤ threshold):',
+    brackets.map((t, i) => `≤${t}: ${counts.slice(0, i + 1).reduce((a, b) => a + b, 0)}`).join('  '));
+
   const dark = new Uint8Array(w * h);
-  for (let i = 0; i < gray.length; i++) dark[i] = gray[i] < thresh ? 255 : 0;
+  let inkPixels = 0;
+  for (let i = 0; i < w * h; i++) {
+    const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
+    if (r <= INK_MAX && g <= INK_MAX && b <= INK_MAX) {
+      dark[i] = 255;
+      inkPixels++;
+    }
+  }
+  console.log(`[TileDetect] Ink pixels (RGB<=${INK_MAX}): ${inkPixels} / ${w * h} (${(inkPixels / (w * h) * 100).toFixed(2)}%)`);
 
   const blobs = connectedComponents(dark, w, h);
   console.log('[TileDetect] Raw dark blobs:', blobs.length);
@@ -150,14 +180,19 @@ function detectTileRects(gray: Uint8Array, w: number, h: number): TileRect[] {
   const maxH = w / 6;
   const maxArea = w * h * 0.08;
 
+  let rejTooShort = 0, rejTooTall = 0, rejAspect = 0, rejFill = 0, rejArea = 0;
   const letterBlobs = blobs.filter(b => {
     const bh = b.y1 - b.y0 + 1, bw = b.x1 - b.x0 + 1;
-    if (bh < minH || bh > maxH) return false;
-    if (bw < bh * 0.15 || bw > bh * 2.5) return false;
-    if (b.area < bw * bh * 0.05) return false;
-    if (b.area > maxArea) return false;
+    if (bh < minH) { rejTooShort++; return false; }
+    if (bh > maxH) { rejTooTall++; return false; }
+    if (bw < bh * 0.15 || bw > bh * 2.5) { rejAspect++; return false; }
+    if (b.area < bw * bh * 0.05) { rejFill++; return false; }
+    if (b.area > maxArea) { rejArea++; return false; }
     return true;
   });
+  console.log(`[TileDetect] Letter blob filter: ${blobs.length} → ${letterBlobs.length} kept`,
+    `| dropped: tooShort=${rejTooShort} tooTall=${rejTooTall} aspect=${rejAspect} fill=${rejFill} area=${rejArea}`);
+  console.log(`[TileDetect] Size window: minH=${minH.toFixed(1)} maxH=${maxH.toFixed(1)}`);
 
   if (letterBlobs.length === 0) {
     console.warn('[TileDetect] No letter-sized blobs found — check lighting/contrast');
@@ -179,42 +214,23 @@ function detectTileRects(gray: Uint8Array, w: number, h: number): TileRect[] {
     const bh = b.y1 - b.y0 + 1;
     return bh > medH * 0.6 && bh < medH * 1.4;
   });
+  console.log(`[TileDetect] Core blobs (within 40% of median height): ${letterBlobs.length} → ${coreBlobs.length}`);
 
-  // Expand each letter blob centre → tile boundary, then verify the surrounding
-  // region is mostly cream/white. Shadows and inter-tile gaps are mid-gray or
-  // darker and will fail this check.
-  const expanded: TileRect[] = [];
-  for (const b of coreBlobs) {
+  // Expand each letter blob centre → tile boundary.
+  // Background brightness check removed: our selective INK_MAX threshold already
+  // ensures only genuine ink blobs reach this point, so the check was a net
+  // negative — it was rejecting real tiles in shadowed areas.
+  const expanded: TileRect[] = coreBlobs.map(b => {
     const cx = (b.x0 + b.x1) / 2;
     const cy = (b.y0 + b.y1) / 2;
-    const rect: TileRect = {
+    return {
       x0: Math.max(0, Math.round(cx - half)),
       y0: Math.max(0, Math.round(cy - half)),
       x1: Math.min(w - 1, Math.round(cx + half)),
       y1: Math.min(h - 1, Math.round(cy + half)),
     };
-
-    // Sample the background brightness: count pixels lighter than 160
-    // (cream tile background is typically 180-255; shadows are below 150).
-    // We exclude the inner letter region so the dark strokes don't skew the count.
-    const innerMargin = Math.round(tileSize * 0.15);
-    let lightPixels = 0, totalPixels = 0;
-    for (let py = rect.y0; py <= rect.y1; py++) {
-      for (let px = rect.x0; px <= rect.x1; px++) {
-        // Skip the very centre where the letter lives
-        if (
-          px >= rect.x0 + innerMargin && px <= rect.x1 - innerMargin &&
-          py >= rect.y0 + innerMargin && py <= rect.y1 - innerMargin
-        ) continue;
-        totalPixels++;
-        if (gray[py * w + px] > 160) lightPixels++;
-      }
-    }
-    // Require at least 55% of the border region to be light
-    if (totalPixels > 0 && lightPixels / totalPixels >= 0.55) {
-      expanded.push(rect);
-    }
-  }
+  });
+  console.log(`[TileDetect] Expanded tile rects: ${expanded.length}`);
 
   // NMS: remove duplicate boxes caused by multi-blob letters (e.g. 'i' dot + stroke)
   const deduped = nms(expanded);
@@ -601,10 +617,16 @@ async function buildDebugImage(
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+export class OCRCancelledError extends Error {
+  constructor() { super('OCR cancelled'); this.name = 'OCRCancelledError'; }
+}
+
 export async function runOCR(
   image: Blob,
   onProgress?: (identified: number, detected: number) => void,
+  signal?: AbortSignal,
 ): Promise<OCRResult> {
+  const checkCancelled = () => { if (signal?.aborted) throw new OCRCancelledError(); };
   console.log('[OCR] start — input blob size:', image.size);
 
   // 1. Decode + scale image (cap at 1200px to keep processing fast)
@@ -630,7 +652,8 @@ export async function runOCR(
   }
 
   // 3. Find tile bounding boxes via letter-blob detection
-  const tileRects = detectTileRects(gray, W, H);
+  checkCancelled();
+  const tileRects = detectTileRects(imgData.data, W, H);
   console.log('[OCR] tile rects detected:', tileRects.length);
   onProgress?.(0, tileRects.length);
 
@@ -640,6 +663,7 @@ export async function runOCR(
   }
 
   // ── Tesseract: one worker, PSM 10 (single character), LSTM only ──────────────
+  checkCancelled();
   const tesseractModule: any = await import('tesseract.js');
   const createWorker: any =
     tesseractModule.createWorker ?? tesseractModule.default?.createWorker;
@@ -699,6 +723,7 @@ export async function runOCR(
     };
 
     for (let i = 0; i < tileRects.length; i++) {
+      checkCancelled();
       const rect = tileRects[i];
 
       // First attempt with adaptive Otsu

@@ -4,7 +4,7 @@ import { Audio } from "expo-av";
 import type { Player, StoredBoard } from "../db/queries.firestore";
 import { createGame, createPlayer, listPlayers } from "../db/queries.firestore";
 import type { OCRResult } from "../utils/ocr";
-import { runOCR } from "../utils/ocr";
+import { runOCR, OCRCancelledError } from "../utils/ocr";
 import { AddPlayerSheet } from "./AddPlayerSheet";
 import { initGrid, deriveWordsFromGrid } from "./BoardEditorModal";
 import type { BoardCell, CellKey, CellState, StoredBoardWord } from "./BoardEditorModal";
@@ -153,6 +153,7 @@ export function SaveGameModal({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [ocrProgress, setOcrProgress] = useState<{ identified: number; detected: number } | null>(null);
   const [showTileDebug, setShowTileDebug] = useState(false);
+  const ocrAbortRef = useRef<AbortController | null>(null);
 
   // ── Step 2: Board editor ─────────────────────────────────────────────────────
   const [editorCells, setEditorCells] = useState<Map<CellKey, CellState>>(new Map());
@@ -219,19 +220,26 @@ export function SaveGameModal({
       setOcrProgress(null);
       setPreviewUrl(track(URL.createObjectURL(file)));
       setOcrRunning(true);
+      const controller = new AbortController();
+      ocrAbortRef.current = controller;
 
       try {
-        const result = await runOCR(file, (identified, detected) =>
-          setOcrProgress({ identified, detected })
+        const result = await runOCR(
+          file,
+          (identified, detected) => setOcrProgress({ identified, detected }),
+          controller.signal,
         );
         track(result.debugImageUrl);
         result.tiles.forEach((t) => track(t.debugUrl));
         setOcrResult(result);
       } catch (e) {
-        console.error("[OCR] failed:", e);
-        Alert.alert("OCR failed", String(e));
+        if (!(e instanceof OCRCancelledError)) {
+          console.error("[OCR] failed:", e);
+          Alert.alert("OCR failed", String(e));
+        }
       } finally {
         setOcrRunning(false);
+        ocrAbortRef.current = null;
       }
     };
 
@@ -519,6 +527,14 @@ export function SaveGameModal({
                               }} />
                             )}
                           </View>
+
+                          {/* Cancel button */}
+                          <Pressable
+                            onPress={() => { ocrAbortRef.current?.abort(); ocrAbortRef.current = null; setOcrRunning(false); setOcrProgress(null); }}
+                            style={{ alignSelf: "flex-end", paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#FFEBEE", borderRadius: 8, borderWidth: 1, borderColor: "#FFCDD2" }}
+                          >
+                            <Text style={{ fontSize: 13, color: "#C62828", fontWeight: "600" }}>Cancel</Text>
+                          </Pressable>
 
                           {/* Original photo thumbnail while scanning */}
                           {previewUrl && (
