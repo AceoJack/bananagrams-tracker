@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, Animated, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import type { Player, StoredBoard } from "../db/queries.firestore";
 import { createGame, createPlayer, listPlayers } from "../db/queries.firestore";
 import type { OCRResult } from "../utils/ocr";
@@ -76,16 +76,12 @@ function CelebrationOverlay({ type, onDone }: { type: "bananas" | "rotten"; onDo
 }
 
 const CELL = 44;
-const KEY_SIZE = 34;
 const KEY_GAP = 4;
 const KEYBOARD_ROWS = [
   "QWERTYUIOP".split(""),
   "ASDFGHJKL".split(""),
   "ZXCVBNM".split(""),
 ];
-// Each row is staggered right by ~half a key relative to the one above.
-// Row offsets in px (matches a standard QWERTY stagger).
-const ROW_OFFSETS = [0, (KEY_SIZE + KEY_GAP) * 0.5, (KEY_SIZE + KEY_GAP) * 1.25];
 
 const STEP_LABELS = ["Scan Board", "Edit Board", "Players"];
 
@@ -102,6 +98,14 @@ export function SaveGameModal({
   playedAtISO: string;
   onSaved: () => Promise<void> | void;
 }) {
+  // ── Responsive keyboard sizing ───────────────────────────────────────────────
+  // Modal outer padding is 20px each side; keyboard section has paddingHorizontal 12px each side.
+  // Row 0 (QWERTYUIOP) has 10 keys + 9 gaps — this is the widest row.
+  const { width: windowWidth } = useWindowDimensions();
+  const kbAvailableWidth = windowWidth - 40 - 24; // 40 = modal padding×2, 24 = kb padding×2
+  const KEY_SIZE = Math.min(34, Math.floor((kbAvailableWidth - 9 * KEY_GAP) / 10));
+  const ROW_OFFSETS = [0, (KEY_SIZE + KEY_GAP) * 0.5, (KEY_SIZE + KEY_GAP) * 1.25];
+
   // ── Step ─────────────────────────────────────────────────────────────────────
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
