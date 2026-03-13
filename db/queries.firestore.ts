@@ -1,6 +1,7 @@
 // db/queries.firestore.ts
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   orderBy,
@@ -163,6 +164,34 @@ export async function createGame(input: {
         tx.update(pref, { wins: (p.wins ?? 0) + 1 });
       } else {
         tx.update(pref, { losses: (p.losses ?? 0) + 1 });
+      }
+    }
+  });
+}
+
+export async function deleteGame(game: Game) {
+  await ensureAuthClientSide();
+  const db = getFirebaseDb();
+
+  await runTransaction(db, async (tx) => {
+    // Read all player docs first
+    const playerRefs = game.playerIds.map((pid) => doc(playersCol(), pid));
+    const playerSnaps = await Promise.all(playerRefs.map((ref) => tx.get(ref)));
+
+    // Delete the game doc
+    tx.delete(doc(gamesCol(), game.id));
+
+    // Reverse win/loss counts
+    for (let i = 0; i < game.playerIds.length; i++) {
+      const pid = game.playerIds[i];
+      const snap = playerSnaps[i];
+      if (!snap.exists()) continue;
+      const p = snap.data() as any;
+      const pref = doc(playersCol(), pid);
+      if (pid === game.winnerId) {
+        tx.update(pref, { wins: Math.max(0, (p.wins ?? 0) - 1) });
+      } else {
+        tx.update(pref, { losses: Math.max(0, (p.losses ?? 0) - 1) });
       }
     }
   });

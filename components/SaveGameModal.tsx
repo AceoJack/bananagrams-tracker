@@ -17,6 +17,7 @@ import * as Haptics from "expo-haptics";
 function CelebrationOverlay({ type, onDone }: { type: "bananas" | "rotten"; onDone: () => void }) {
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.7)).current;
+  const isBananas = type === "bananas";
 
   useEffect(() => {
     // Animate in
@@ -29,20 +30,29 @@ function CelebrationOverlay({ type, onDone }: { type: "bananas" | "rotten"; onDo
     let soundObj: Audio.Sound | null = null;
     (async () => {
       try {
-        const { sound } = await Audio.Sound.createAsync(
-          isBananas
+        if (Platform.OS === "web") {
+          // Use native HTMLAudioElement on web — simpler and respects autoplay better
+          const url = isBananas
             ? require("../assets/sounds/bananas.mp3")
-            : require("../assets/sounds/rotten-bananas.mp3")
-        );
-        soundObj = sound;
-        await sound.playAsync();
+            : require("../assets/sounds/rotten-bananas.mp3");
+          const audio = new (window as any).Audio(url);
+          audio.play().catch(() => {});
+        } else {
+          // expo-av for iOS / Android
+          await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: false });
+          const source = isBananas
+            ? require("../assets/sounds/bananas.mp3")
+            : require("../assets/sounds/rotten-bananas.mp3");
+          const { sound } = await Audio.Sound.createAsync(source, { shouldPlay: true });
+          soundObj = sound;
+        }
       } catch (e) {
         // Sound is optional — silently ignore errors
       }
     })();
 
     // Fire confetti on web for valid boards
-    if (type === "bananas" && Platform.OS === "web") {
+    if (isBananas && Platform.OS === "web") {
       import("canvas-confetti").then(({ default: confetti }) => {
         const burst = (x: number, angle: number) =>
           confetti({ particleCount: 70, spread: 60, origin: { x, y: 1 }, angle, startVelocity: 55,
@@ -64,7 +74,7 @@ function CelebrationOverlay({ type, onDone }: { type: "bananas" | "rotten"; onDo
     };
   }, []);
 
-  const isBananas = type === "bananas";
+
 
   return (
     <Modal visible transparent animationType="none" onRequestClose={onDone}>
