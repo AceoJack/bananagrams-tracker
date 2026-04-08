@@ -33,7 +33,8 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "routing": "hash"
     },
     "plugins": [
       "expo-router",
@@ -60,7 +61,8 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": true,
+      "baseUrl": "/bananagrams-tracker"
     },
     "extra": {
       "router": {},
