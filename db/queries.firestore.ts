@@ -11,8 +11,27 @@ import {
   setDoc,
   Timestamp,
 } from "firebase/firestore";
-import { signInAnonymously } from "firebase/auth";
+import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { getFirebaseAuth, getFirebaseDb } from "../utils/firebase";
+
+// Cached promise that resolves once Firebase has loaded the persisted auth state.
+// Without this, auth.currentUser is null on startup even if a session exists,
+// causing ensureAuthClientSide to incorrectly call signInAnonymously and
+// overwrite the real session with a new anonymous one.
+let _authReadyPromise: Promise<void> | null = null;
+function waitForAuthReady(): Promise<void> {
+  if (_authReadyPromise) return _authReadyPromise;
+  _authReadyPromise = new Promise<void>((resolve) => {
+    const auth = getFirebaseAuth();
+    // onAuthStateChanged fires immediately with the current state once Firebase
+    // has finished loading the persisted session (or null if there is none).
+    const unsub = onAuthStateChanged(auth, () => {
+      unsub();
+      resolve();
+    });
+  });
+  return _authReadyPromise;
+}
 
 export type Player = { id: string; name: string; wins: number; losses: number };
 
@@ -25,6 +44,12 @@ export type StoredBoardWord = {
 };
 export type StoredBoard = { tiles: StoredBoardTile[]; words: StoredBoardWord[] };
 
+export type Elimination = {
+  playerId: string;
+  eliminatedAt: number; // elapsed ms at elimination
+  reason: "rotten";
+};
+
 export type Game = {
   id: string;
   playedAt: string;
@@ -34,10 +59,14 @@ export type Game = {
   winnerId: string;
   winnerName: string;
   board?: StoredBoard;
+  eliminations?: Elimination[];
+  outcome?: "bananas" | "last_standing";
 };
 
 async function ensureAuthClientSide() {
-  // This function must only be called on the client.
+  // Wait for Firebase to finish loading the persisted session before we check
+  // currentUser — otherwise we'd see null and call signInAnonymously too early.
+  await waitForAuthReady();
   const auth = getFirebaseAuth();
   if (!auth.currentUser) {
     await signInAnonymously(auth);
@@ -108,6 +137,8 @@ export async function listGames(): Promise<Game[]> {
       winnerId,
       winnerName: playerMap.get(winnerId) ?? "Unknown",
       board: data.board ?? undefined,
+      eliminations: data.eliminations ?? undefined,
+      outcome: data.outcome ?? undefined,
     };
   });
 }
@@ -118,9 +149,11 @@ export async function createGame(input: {
   playerIds: string[];
   winnerId: string;
   board?: StoredBoard;
+  eliminations?: Elimination[];
+  outcome?: "bananas" | "last_standing";
 }) {
   await ensureAuthClientSide();
-  const { playedAtISO, durationSeconds, playerIds, winnerId, board } = input;
+  const { playedAtISO, durationSeconds, playerIds, winnerId, board, eliminations, outcome } = input;
 
   if (!playerIds.length) throw new Error("Select at least 1 player.");
   if (!playerIds.includes(winnerId)) throw new Error("Winner must be in selected players.");
@@ -151,6 +184,8 @@ export async function createGame(input: {
       playerIds,
       winnerId,
       ...(board ? { board } : {}),
+      ...(eliminations?.length ? { eliminations } : {}),
+      ...(outcome ? { outcome } : {}),
       createdAt: serverTimestamp(),
     });
 

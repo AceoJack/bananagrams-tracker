@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
-import { Audio } from "expo-av";
 import type { Player, StoredBoard } from "../db/queries.firestore";
 import { createGame, createPlayer, listPlayers } from "../db/queries.firestore";
+import { CelebrationOverlay } from "./CelebrationOverlay";
 import type { OCRResult } from "../utils/ocr";
 import { runOCR, OCRCancelledError } from "../utils/ocr";
 import { AddPlayerSheet } from "./AddPlayerSheet";
@@ -12,107 +12,6 @@ import { loadDictionary } from "../utils/dictionary";
 import { PlayerMultiSelect } from "./PlayerMultiSelect";
 import * as Haptics from "expo-haptics";
 
-// ── Celebration overlay ───────────────────────────────────────────────────────
-
-function CelebrationOverlay({ type, onDone }: { type: "bananas" | "rotten"; onDone: () => void }) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.7)).current;
-  const isBananas = type === "bananas";
-
-  useEffect(() => {
-    // Animate in
-    Animated.parallel([
-      Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 180 }),
-      Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-    ]).start();
-
-    // Play sound
-    let soundObj: Audio.Sound | null = null;
-    (async () => {
-      try {
-        if (Platform.OS === "web") {
-          // Use native HTMLAudioElement on web — simpler and respects autoplay better
-          const url = isBananas
-            ? require("../assets/sounds/bananas.mp3")
-            : require("../assets/sounds/rotten-bananas.mp3");
-          const audio = new (window as any).Audio(url);
-          audio.play().catch(() => {});
-        } else {
-          // expo-av for iOS / Android
-          await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: false });
-          const source = isBananas
-            ? require("../assets/sounds/bananas.mp3")
-            : require("../assets/sounds/rotten-bananas.mp3");
-          const { sound } = await Audio.Sound.createAsync(source, { shouldPlay: true });
-          soundObj = sound;
-        }
-      } catch (e) {
-        // Sound is optional — silently ignore errors
-      }
-    })();
-
-    // Fire confetti on web for valid boards
-    if (isBananas && Platform.OS === "web") {
-      import("canvas-confetti").then(({ default: confetti }) => {
-        const burst = (x: number, angle: number) =>
-          confetti({ particleCount: 70, spread: 60, origin: { x, y: 1 }, angle, startVelocity: 55,
-            colors: ["#FFD700", "#FFA500", "#FFEC47", "#FFF176", "#FF8F00", "#ffffff"] });
-        burst(0.2, 70);
-        setTimeout(() => burst(0.8, 110), 150);
-        setTimeout(() => burst(0.5, 90), 300);
-      });
-    }
-
-    // Auto-dismiss after 2.8 s
-    const timer = setTimeout(() => {
-      Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(onDone);
-    }, 2800);
-
-    return () => {
-      clearTimeout(timer);
-      soundObj?.unloadAsync();
-    };
-  }, []);
-
-
-
-  return (
-    <Modal visible transparent animationType="none" onRequestClose={onDone}>
-      <Pressable
-        style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.45)" }}
-        onPress={() => Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(onDone)}
-      >
-        <Animated.View style={{ opacity, transform: [{ scale }], alignItems: "center" }}>
-          {isBananas ? (
-            <Text style={{ fontSize: 64, marginBottom: 8 }}>🍌</Text>
-          ) : (
-            <Image
-              source={require("../assets/images/rotten-bananas.png")}
-              style={{ width: 80, height: 80, marginBottom: 8 }}
-              resizeMode="contain"
-            />
-          )}
-          <View style={{
-            paddingHorizontal: 36, paddingVertical: 20, borderRadius: 20,
-            backgroundColor: isBananas ? "#FFF8E1" : "#EFEBE9",
-            borderWidth: 2, borderColor: isBananas ? "#F9A825" : "#795548",
-            shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 12,
-            shadowOffset: { width: 0, height: 6 }, elevation: 8,
-            alignItems: "center",
-          }}>
-            <Text style={{ fontSize: 32, fontWeight: "800", color: isBananas ? "#E65100" : "#4E342E", letterSpacing: 0.5 }}>
-              {isBananas ? "Bananas!" : "Rotten Bananas!"}
-            </Text>
-            <Text style={{ fontSize: 13, color: isBananas ? "#F57F17" : "#6D4C41", marginTop: 6 }}>
-              {isBananas ? "All words are valid — nice board!" : "Some words aren't in the dictionary."}
-            </Text>
-          </View>
-        </Animated.View>
-      </Pressable>
-    </Modal>
-  );
-}
-
 const CELL = 44;
 const KEY_GAP = 4;
 const KEYBOARD_ROWS = [
@@ -121,21 +20,26 @@ const KEYBOARD_ROWS = [
   "ZXCVBNM".split(""),
 ];
 
-const STEP_LABELS = ["Scan Board", "Edit Board", "Players"];
-
 export function SaveGameModal({
   visible,
   onClose,
   durationSeconds,
   playedAtISO,
   onSaved,
+  mode = "save",
+  onCheckResult,
 }: {
   visible: boolean;
   onClose: () => void;
   durationSeconds: number;
   playedAtISO: string;
   onSaved: () => Promise<void> | void;
+  mode?: "save" | "check" | "upload";
+  onCheckResult?: (result: { valid: boolean; board: StoredBoard | null }) => void;
 }) {
+  const isCheckMode = mode === "check";
+  const isUploadMode = mode === "upload";
+  const STEP_LABELS = (isCheckMode || isUploadMode) ? ["Scan Board", "Edit Board"] : ["Scan Board", "Edit Board", "Players"];
   // ── Responsive keyboard sizing ───────────────────────────────────────────────
   // Modal outer padding is 20px each side; keyboard section has paddingHorizontal 12px each side.
   // Row 0 (QWERTYUIOP) has 10 keys + 9 gaps — this is the widest row.
@@ -383,8 +287,21 @@ export function SaveGameModal({
       tiles.push({ letter: v.letter, col, row });
     }
     const words = deriveWordsFromGrid(editorCells);
-    setSavedBoard({ tiles, words });
+    const board: StoredBoard = { tiles, words };
+    setSavedBoard(board);
     setSelecting(null);
+
+    if (isCheckMode || isUploadMode) {
+      // Determine validity (upload mode skips the check — board is saved regardless)
+      const allValid =
+        isUploadMode ||
+        words.length === 0 ||
+        (dict !== null && words.every((w) => dict.has(w.word.toUpperCase())));
+      onCheckResult?.({ valid: allValid, board });
+      onClose();
+      return;
+    }
+
     setStep(3);
   };
 
@@ -463,7 +380,9 @@ export function SaveGameModal({
 
             {/* ── Header ── */}
             <View style={{ padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
-              <Text style={{ fontSize: 22, fontWeight: "700", marginBottom: 12 }}>Save Game</Text>
+              <Text style={{ fontSize: 22, fontWeight: "700", marginBottom: 12 }}>
+                {isCheckMode ? "Check Board" : isUploadMode ? "Upload Board" : "Save Game"}
+              </Text>
 
               {/* Step indicator */}
               <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "center" }}>
@@ -471,8 +390,9 @@ export function SaveGameModal({
                   const stepNum = (i + 1) as 1 | 2 | 3;
                   const active = step === stepNum;
                   const done = step > stepNum;
+                  const isLast = i === STEP_LABELS.length - 1;
                   return (
-                    <View key={stepNum} style={{ flexDirection: "row", alignItems: "center", flex: stepNum < 3 ? 1 : undefined }}>
+                    <View key={stepNum} style={{ flexDirection: "row", alignItems: "center", flex: !isLast ? 1 : undefined }}>
                       <View style={{ alignItems: "center" }}>
                         <View style={{
                           width: 28, height: 28, borderRadius: 14,
@@ -483,7 +403,7 @@ export function SaveGameModal({
                         </View>
                         <Text style={{ fontSize: 10, color: active ? "#111" : "#999", marginTop: 3, fontWeight: active ? "600" : "400" }}>{label}</Text>
                       </View>
-                      {stepNum < 3 && (
+                      {!isLast && (
                         <View style={{ flex: 1, height: 1, backgroundColor: done ? "#555" : "#ddd", marginHorizontal: 6, marginBottom: 14 }} />
                       )}
                     </View>
@@ -984,7 +904,7 @@ export function SaveGameModal({
                     onPress={goToStep3}
                     style={{ padding: 12, backgroundColor: "#111", borderRadius: 10 }}
                   >
-                    <Text style={{ color: "white" }}>Next →</Text>
+                    <Text style={{ color: "white" }}>{isCheckMode ? "Check Board →" : isUploadMode ? "Upload →" : "Next →"}</Text>
                   </Pressable>
                 )}
 
