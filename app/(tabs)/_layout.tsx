@@ -3,17 +3,16 @@ import { useRef, useEffect } from "react";
 import { Animated, Pressable, Text, View, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import { C } from "../../utils/designSystem";
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
 const TABS = [
-  { name: "index",   label: "Home",    icon: "home"    } as const,
-  { name: "split",   label: "Split",   icon: "timer"   } as const,
-  { name: "friends", label: "Friends", icon: "people"  } as const,
-  { name: "profile", label: "Profile", icon: "person"  } as const,
+  { name: "split",   label: "Split",   icon: "timer"  } as const,
+  { name: "profile", label: "Profile", icon: "person" } as const,
 ];
 
-// ── Animated tab button ───────────────────────────────────────────────────────
+// ── Tab button ────────────────────────────────────────────────────────────────
 
 function TabButton({
   label, icon, active, onPress,
@@ -23,17 +22,14 @@ function TabButton({
   active: boolean;
   onPress: () => void;
 }) {
-  const bg    = useRef(new Animated.Value(active ? 1 : 0)).current;
   const scale = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    Animated.timing(bg, { toValue: active ? 1 : 0, duration: 180, useNativeDriver: false }).start();
-  }, [active]);
+  const handlePressIn  = () =>
+    Animated.spring(scale, { toValue: 0.88, useNativeDriver: true, speed: 30 }).start();
+  const handlePressOut = () =>
+    Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 20 }).start();
 
-  const bgColor = bg.interpolate({ inputRange: [0, 1], outputRange: ["rgba(0,0,0,0)", "rgba(17,17,17,1)"] });
-
-  const handlePressIn  = () => Animated.spring(scale, { toValue: 0.88, useNativeDriver: true, speed: 30 }).start();
-  const handlePressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 20 }).start();
+  const color = active ? C.brandShadow : C.textTertiary;
 
   return (
     <Pressable
@@ -42,22 +38,24 @@ function TabButton({
       onPressOut={handlePressOut}
       style={{ flex: 1, alignItems: "center" }}
     >
-      <Animated.View style={{
-        transform: [{ scale }],
-        alignItems: "center",
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 20,
-        backgroundColor: bgColor,
-        minWidth: 52,
-        gap: 3,
-      }}>
+      <Animated.View
+        style={{
+          transform: [{ scale }],
+          alignItems: "center",
+          paddingVertical: 8,
+          gap: 3,
+        }}
+      >
         <Ionicons
           name={active ? icon : (`${icon}-outline` as any)}
           size={22}
-          color={active ? "#fff" : "#999"}
+          color={color}
         />
-        <Text style={{ fontSize: 11, fontWeight: active ? "700" : "400", color: active ? "#fff" : "#999" }}>
+        <Text style={{
+          fontSize: 11,
+          fontWeight: active ? "500" : "400",
+          color,
+        }}>
           {label}
         </Text>
       </Animated.View>
@@ -70,21 +68,16 @@ function TabButton({
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   return (
     <View style={{
-      position: "absolute", bottom: 0, left: 0, right: 0,
-      paddingBottom: Platform.OS === "ios" ? 28 : 12,
-      paddingTop: 10,
+      position: "absolute",
+      bottom: 0, left: 0, right: 0,
+      paddingBottom: Platform.OS === "ios" ? 20 : 8,
+      paddingTop: 8,
       paddingHorizontal: 16,
-      backgroundColor: "#fff",
-      borderTopWidth: 1,
-      borderTopColor: "#f0f0f0",
+      backgroundColor: C.surface,
+      borderTopWidth: 0.5,
+      borderTopColor: C.borderTertiary,
       flexDirection: "row",
       alignItems: "center",
-      // Shadow
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: -3 },
-      shadowOpacity: 0.06,
-      shadowRadius: 12,
-      elevation: 16,
     }}>
       {TABS.map((tab) => {
         const routeIndex = state.routes.findIndex((r) => r.name === tab.name);
@@ -96,7 +89,11 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             icon={tab.icon}
             active={active}
             onPress={() => {
-              const event = navigation.emit({ type: "tabPress", target: state.routes[routeIndex].key, canPreventDefault: true });
+              const event = navigation.emit({
+                type: "tabPress",
+                target: state.routes[routeIndex].key,
+                canPreventDefault: true,
+              });
               if (!active && !event.defaultPrevented) navigation.navigate(tab.name);
             }}
           />
@@ -111,14 +108,17 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 export default function TabLayout() {
   return (
     <Tabs
+      initialRouteName="split"
       tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{ headerShown: false, tabBarStyle: { display: "none" } }}
+      screenOptions={{ headerShown: false, tabBarStyle: { display: "none" }, contentStyle: { backgroundColor: "#30302E" } }}
     >
-      <Tabs.Screen name="index" />
-      <Tabs.Screen name="split" />
-      <Tabs.Screen name="stats" />
-      <Tabs.Screen name="friends" />
+      {/* Visible tabs */}
+      <Tabs.Screen name="split"   />
+      <Tabs.Screen name="stats"   />
       <Tabs.Screen name="profile" />
+      {/* Hidden — still routable */}
+      <Tabs.Screen name="index"   />
+      <Tabs.Screen name="friends" />
     </Tabs>
   );
 }

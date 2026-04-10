@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { Animated } from "react-native";
+import { Animated, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 
 export function FadeInView({ children }: { children: React.ReactNode }) {
@@ -12,5 +12,9 @@ export function FadeInView({ children }: { children: React.ReactNode }) {
     }, [])
   );
 
-  return <Animated.View style={{ flex: 1, opacity }}>{children}</Animated.View>;
+  return (
+    <View style={{ flex: 1, backgroundColor: "#30302E" }}>
+      <Animated.View style={{ flex: 1, opacity }}>{children}</Animated.View>
+    </View>
+  );
 }
