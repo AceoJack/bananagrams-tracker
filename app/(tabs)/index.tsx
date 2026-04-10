@@ -1,13 +1,20 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { FadeInView } from "../../components/FadeInView";
 import { onAuthStateChanged } from "firebase/auth";
-import { getFirebaseAuth } from "../../utils/firebase"; // adjust path
-import { listPlayers, type Player } from "../../db/queries.firestore"; // adjust path
+import { getFirebaseAuth } from "../../utils/firebase";
+import { getOrCreateUserProfile, listGuests, type UserProfile, type Guest } from "../../db/queries.firestore";
 import { useFocusEffect } from "expo-router";
 
+interface StatRow {
+  name: string;
+  wins: number;
+  losses: number;
+  tag?: string;
+}
+
 export default function Home() {
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [rows, setRows] = useState<StatRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [uid, setUid] = useState<string | null>(null);
 
@@ -15,7 +22,6 @@ export default function Home() {
     const auth = getFirebaseAuth();
     const unsub = onAuthStateChanged(auth, (user) => {
       setUid(user?.uid ?? null);
-      // Clear stale "permissions" errors when auth changes
       setError(null);
     });
     return () => unsub();
@@ -24,26 +30,48 @@ export default function Home() {
   useFocusEffect(
     useCallback(() => {
       if (!uid) return;
-
       let cancelled = false;
 
       (async () => {
         try {
-          const data = await listPlayers();
-          if (!cancelled) setPlayers(data);
+          const auth = getFirebaseAuth();
+          const user = auth.currentUser;
+          if (!user) return;
+
+          const [profile, guests] = await Promise.all([
+            getOrCreateUserProfile({
+              uid: user.uid,
+              displayName: user.displayName,
+              email: user.email,
+              photoURL: user.photoURL,
+            }),
+            listGuests(user.uid),
+          ]);
+
+          if (cancelled) return;
+
+          const allRows: StatRow[] = [
+            { name: profile.displayName, wins: profile.wins ?? 0, losses: profile.losses ?? 0, tag: "You" },
+            ...guests.map((g) => ({ name: g.name, wins: g.wins, losses: g.losses, tag: "Guest" })),
+          ];
+
+          // Sort by wins desc, then losses asc
+          allRows.sort((a, b) =>
+            b.wins !== a.wins ? b.wins - a.wins : a.losses - b.losses
+          );
+
+          setRows(allRows);
         } catch (e: any) {
-          console.error("Home listPlayers failed:", e);
-          if (!cancelled) setError(e?.message ?? "Failed to load players");
+          console.error("Home load failed:", e);
+          if (!cancelled) setError(e?.message ?? "Failed to load stats");
         }
       })();
 
-      return () => {
-        cancelled = true;
-      };
+      return () => { cancelled = true; };
     }, [uid])
   );
 
-  if (error) return <Text>{error}</Text>;
+  if (error) return <Text style={{ padding: 16, color: "#c00" }}>{error}</Text>;
 
   return (
     <FadeInView>
@@ -58,23 +86,40 @@ export default function Home() {
             <Text style={{ flex: 1, fontWeight: "700", textAlign: "right" }}>Win %</Text>
           </View>
 
-          {players.length === 0 ? (
+          {rows.length === 0 ? (
             <View style={{ padding: 12 }}>
-              <Text style={{ color: "#666" }}>No players yet. Save a game to create players.</Text>
+              <Text style={{ color: "#666" }}>
+                No stats yet. Play some games to see your record here.
+              </Text>
             </View>
           ) : (
-            players.map((p) => {
-              const played = p.wins + p.losses;
-              const pct = played === 0 ? "—" : `${Math.round((p.wins / played) * 100)}%`;
+            rows.map((r, i) => {
+              const played = r.wins + r.losses;
+              const pct = played === 0 ? "—" : `${Math.round((r.wins / played) * 100)}%`;
               return (
                 <View
-                  key={p.id}
-                  style={{ flexDirection: "row", padding: 12, borderTopWidth: 1, borderTopColor: "#eee" }}
+                  key={i}
+                  style={{ flexDirection: "row", padding: 12, borderTopWidth: 1, borderTopColor: "#eee", alignItems: "center" }}
                 >
-                  <Text style={{ flex: 2 }}>{p.name}</Text>
-                  <Text style={{ flex: 1, textAlign: "right" }}>{p.wins}</Text>
-                  <Text style={{ flex: 1, textAlign: "right" }}>{p.losses}</Text>
-                  <Text style={{ flex: 1, textAlign: "right", fontWeight: "600", color: played === 0 ? "#aaa" : p.wins / played >= 0.5 ? "#2E7D32" : "#C62828" }}>
+                  <View style={{ flex: 2, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text>{r.name}</Text>
+                    {r.tag === "You" && (
+                      <View style={{ backgroundColor: "#F9A825", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                        <Text style={{ fontSize: 10, fontWeight: "700", color: "#fff" }}>YOU</Text>
+                      </View>
+                    )}
+                    {r.tag === "Guest" && (
+                      <View style={{ backgroundColor: "#eee", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                        <Text style={{ fontSize: 10, fontWeight: "600", color: "#888" }}>GUEST</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={{ flex: 1, textAlign: "right" }}>{r.wins}</Text>
+                  <Text style={{ flex: 1, textAlign: "right" }}>{r.losses}</Text>
+                  <Text style={{
+                    flex: 1, textAlign: "right", fontWeight: "600",
+                    color: played === 0 ? "#aaa" : r.wins / played >= 0.5 ? "#2E7D32" : "#C62828",
+                  }}>
                     {pct}
                   </Text>
                 </View>

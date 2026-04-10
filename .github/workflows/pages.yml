@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ firebase ]
+    branches: [ main ]
 
 permissions:
   contents: read

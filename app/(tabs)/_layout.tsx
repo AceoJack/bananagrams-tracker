@@ -7,9 +7,10 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
 const TABS = [
-  { name: "index",  label: "Home",  icon: "home"          } as const,
-  { name: "split",  label: "Split", icon: "timer"           } as const,
-  { name: "stats",  label: "Stats", icon: "stats-chart"    } as const,
+  { name: "index",   label: "Home",    icon: "home"    } as const,
+  { name: "split",   label: "Split",   icon: "timer"   } as const,
+  { name: "friends", label: "Friends", icon: "people"  } as const,
+  { name: "profile", label: "Profile", icon: "person"  } as const,
 ];
 
 // ── Animated tab button ───────────────────────────────────────────────────────
@@ -45,10 +46,10 @@ function TabButton({
         transform: [{ scale }],
         alignItems: "center",
         paddingVertical: 8,
-        paddingHorizontal: 18,
+        paddingHorizontal: 12,
         borderRadius: 20,
         backgroundColor: bgColor,
-        minWidth: 64,
+        minWidth: 52,
         gap: 3,
       }}>
         <Ionicons
@@ -85,8 +86,9 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
       shadowRadius: 12,
       elevation: 16,
     }}>
-      {TABS.map((tab, i) => {
-        const active = state.index === i;
+      {TABS.map((tab) => {
+        const routeIndex = state.routes.findIndex((r) => r.name === tab.name);
+        const active = state.index === routeIndex;
         return (
           <TabButton
             key={tab.name}
@@ -94,7 +96,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             icon={tab.icon}
             active={active}
             onPress={() => {
-              const event = navigation.emit({ type: "tabPress", target: state.routes[i].key, canPreventDefault: true });
+              const event = navigation.emit({ type: "tabPress", target: state.routes[routeIndex].key, canPreventDefault: true });
               if (!active && !event.defaultPrevented) navigation.navigate(tab.name);
             }}
           />
@@ -115,6 +117,8 @@ export default function TabLayout() {
       <Tabs.Screen name="index" />
       <Tabs.Screen name="split" />
       <Tabs.Screen name="stats" />
+      <Tabs.Screen name="friends" />
+      <Tabs.Screen name="profile" />
     </Tabs>
   );
 }
