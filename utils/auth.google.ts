@@ -57,7 +57,7 @@ export function subscribeAuthGate(onState: (s: AuthGateState) => void) {
   onState({ status: "loading" });
 
   return onAuthStateChanged(auth, (user) => {
-    if (!user) {
+    if (!user || user.isAnonymous) {
       onState({ status: "signedOut" });
     } else {
       onState({ status: "allowed", user });
