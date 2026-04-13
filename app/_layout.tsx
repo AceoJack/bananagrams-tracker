@@ -96,7 +96,7 @@ export default function RootLayout() {
 
   return (
     <>
-      <Stack screenOptions={{ headerShown: false }} />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#30302E" } }} />
 
       {state.status !== "allowed" && (
         <View style={{ position: "absolute", inset: 0 }}>

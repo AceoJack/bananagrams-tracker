@@ -10,6 +10,7 @@ import { initGrid, deriveWordsFromGrid } from "./BoardEditorModal";
 import type { BoardCell, CellKey, CellState, StoredBoardWord } from "./BoardEditorModal";
 import { loadDictionary } from "../utils/dictionary";
 import { PlayerMultiSelect } from "./PlayerMultiSelect";
+import { C } from "../utils/designSystem";
 import * as Haptics from "expo-haptics";
 
 const CELL = 44;
@@ -370,17 +371,17 @@ export function SaveGameModal({
         />
       )}
       <Modal visible={visible} animationType="fade" transparent>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", padding: 20 }}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 20 }}>
           <View style={{
-            backgroundColor: "white", borderRadius: 16,
+            backgroundColor: C.surface, borderRadius: 16,
             ...(step === 2 ? { height: "88%" } : { maxHeight: "90%" }),
-            shadowColor: "#000", shadowOpacity: 0.15,
-            shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6, overflow: "hidden",
+            shadowColor: "#000", shadowOpacity: 0.4,
+            shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 8, overflow: "hidden",
           }}>
 
             {/* ── Header ── */}
-            <View style={{ padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
-              <Text style={{ fontSize: 22, fontWeight: "700", marginBottom: 12 }}>
+            <View style={{ padding: 20, paddingBottom: 12, borderBottomWidth: 0.5, borderBottomColor: C.borderTertiary }}>
+              <Text style={{ fontSize: 20, fontWeight: "600", color: C.textPrimary, marginBottom: 12 }}>
                 {isCheckMode ? "Check Board" : isUploadMode ? "Upload Board" : "Save Game"}
               </Text>
 
@@ -396,15 +397,15 @@ export function SaveGameModal({
                       <View style={{ alignItems: "center" }}>
                         <View style={{
                           width: 28, height: 28, borderRadius: 14,
-                          backgroundColor: active ? "#111" : done ? "#555" : "#eee",
+                          backgroundColor: active ? C.textPrimary : done ? C.textSecondary : C.surfaceSecondary,
                           justifyContent: "center", alignItems: "center",
                         }}>
-                          <Text style={{ color: active || done ? "white" : "#aaa", fontSize: 13, fontWeight: "700" }}>{stepNum}</Text>
+                          <Text style={{ color: active || done ? C.bg : C.textTertiary, fontSize: 13, fontWeight: "700" }}>{stepNum}</Text>
                         </View>
-                        <Text style={{ fontSize: 10, color: active ? "#111" : "#999", marginTop: 3, fontWeight: active ? "600" : "400" }}>{label}</Text>
+                        <Text style={{ fontSize: 10, color: active ? C.textPrimary : C.textTertiary, marginTop: 3, fontWeight: active ? "600" : "400" }}>{label}</Text>
                       </View>
                       {!isLast && (
-                        <View style={{ flex: 1, height: 1, backgroundColor: done ? "#555" : "#ddd", marginHorizontal: 6, marginBottom: 14 }} />
+                        <View style={{ flex: 1, height: 1, backgroundColor: done ? C.textSecondary : C.borderTertiary, marginHorizontal: 6, marginBottom: 14 }} />
                       )}
                     </View>
                   );
@@ -416,15 +417,15 @@ export function SaveGameModal({
             {step === 1 && (
               <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
                 <View style={{ gap: 8 }}>
-                  <Text style={{ fontWeight: "600" }}>Board Photo</Text>
+                  <Text style={{ fontWeight: "600", color: C.textPrimary }}>Board Photo</Text>
 
                   {Platform.OS === "web" ? (
                     <>
                       {ocrRunning ? (
                         /* ── Scanning in progress: progress bar replaces button ── */
-                        <View style={{ borderRadius: 12, borderWidth: 1, borderColor: "#ccc", padding: 14, gap: 10 }}>
+                        <View style={{ borderRadius: C.radiusMd, borderWidth: 0.5, borderColor: C.border, backgroundColor: C.surfaceSecondary, padding: 14, gap: 10 }}>
                           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                            <Text style={{ fontSize: 13, color: "#555", fontWeight: "600" }}>
+                            <Text style={{ fontSize: 13, color: C.textSecondary, fontWeight: "500" }}>
                               {ocrProgress === null
                                 ? "Detecting tiles…"
                                 : ocrProgress.identified < ocrProgress.detected
@@ -432,17 +433,17 @@ export function SaveGameModal({
                                 : "Finishing up…"}
                             </Text>
                             {ocrProgress !== null && (
-                              <Text style={{ fontSize: 12, color: "#888" }}>
+                              <Text style={{ fontSize: 12, color: C.textTertiary }}>
                                 {Math.round((ocrProgress.identified / ocrProgress.detected) * 100)}%
                               </Text>
                             )}
                           </View>
 
                           {/* Track */}
-                          <View style={{ height: 8, backgroundColor: "#eee", borderRadius: 4, overflow: "hidden" }}>
+                          <View style={{ height: 6, backgroundColor: C.surface, borderRadius: 3, overflow: "hidden" }}>
                             {ocrProgress !== null && (
                               <View style={{
-                                height: 8, borderRadius: 4, backgroundColor: "#1a73e8",
+                                height: 6, borderRadius: 3, backgroundColor: C.info,
                                 width: `${Math.round((ocrProgress.identified / ocrProgress.detected) * 100)}%`,
                               }} />
                             )}
@@ -451,9 +452,9 @@ export function SaveGameModal({
                           {/* Cancel button */}
                           <Pressable
                             onPress={() => { ocrAbortRef.current?.abort(); ocrAbortRef.current = null; setOcrRunning(false); setOcrProgress(null); }}
-                            style={{ alignSelf: "flex-end", paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#FFEBEE", borderRadius: 8, borderWidth: 1, borderColor: "#FFCDD2" }}
+                            style={{ alignSelf: "flex-end", paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.dangerBg, borderRadius: C.radiusSm, borderWidth: 0.5, borderColor: C.dangerBorder }}
                           >
-                            <Text style={{ fontSize: 13, color: "#C62828", fontWeight: "600" }}>Cancel</Text>
+                            <Text style={{ fontSize: 13, color: C.danger, fontWeight: "500" }}>Cancel</Text>
                           </Pressable>
 
                           {/* Original photo thumbnail while scanning */}
@@ -465,32 +466,32 @@ export function SaveGameModal({
                         /* ── Idle / done: normal button ── */
                         <Pressable
                           onPress={handleChoosePhoto}
-                          style={{ padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#ccc", alignItems: "center" }}
+                          style={{ padding: 12, borderRadius: C.radiusMd, borderWidth: 0.5, borderColor: C.border, alignItems: "center", backgroundColor: C.surfaceSecondary }}
                         >
-                          <Text>{previewUrl ? "Rescan / Change photo" : "Upload / Take photo"}</Text>
+                          <Text style={{ color: C.textSecondary }}>{previewUrl ? "Rescan / Change photo" : "Upload / Take photo"}</Text>
                         </Pressable>
                       )}
 
                       {ocrResult && !ocrRunning && (
                         <View style={{ gap: 12 }}>
                           <View style={{ gap: 4 }}>
-                            <Text style={{ fontSize: 11, fontWeight: "600", color: "#888" }}>
+                            <Text style={{ fontSize: 11, fontWeight: "600", color: C.textTertiary }}>
                               DETECTED BOARD  (green ≥80%  orange ≥50%  red &lt;50% / missed)
                             </Text>
                             <Image
                               source={{ uri: ocrResult.debugImageUrl }}
-                              style={{ width: "100%", height: 200, borderRadius: 8, backgroundColor: "#f0f0f0" }}
+                              style={{ width: "100%", height: 200, borderRadius: 8, backgroundColor: C.surfaceSecondary }}
                               resizeMode="contain"
                             />
                           </View>
 
                           <View style={{ flexDirection: "row", gap: 16, flexWrap: "wrap" }}>
-                            <Text style={{ color: "#444" }}>
-                              Tiles: <Text style={{ fontWeight: "700" }}>{ocrResult.tiles.length}</Text>
+                            <Text style={{ color: C.textSecondary }}>
+                              Tiles: <Text style={{ fontWeight: "700", color: C.textPrimary }}>{ocrResult.tiles.length}</Text>
                             </Text>
                             {avgConf !== null && (
-                              <Text style={{ color: "#444" }}>
-                                Avg confidence: <Text style={{ fontWeight: "700" }}>{avgConf}%</Text>
+                              <Text style={{ color: C.textSecondary }}>
+                                Avg confidence: <Text style={{ fontWeight: "700", color: C.textPrimary }}>{avgConf}%</Text>
                               </Text>
                             )}
                           </View>
@@ -501,14 +502,14 @@ export function SaveGameModal({
                                 onPress={() => setShowTileDebug((v) => !v)}
                                 style={{ alignSelf: "flex-start", paddingVertical: 4 }}
                               >
-                                <Text style={{ fontSize: 11, color: "#aaa" }}>
+                                <Text style={{ fontSize: 11, color: C.textTertiary }}>
                                   {showTileDebug ? "▾ Hide tile debug" : "▸ Show tile debug"}
                                 </Text>
                               </Pressable>
 
                               {showTileDebug && (
                                 <View style={{ gap: 8, marginTop: 6 }}>
-                                  <Text style={{ fontSize: 11, color: "#888" }}>
+                                  <Text style={{ fontSize: 11, color: C.textTertiary }}>
                                     Each card shows the processed image fed to Tesseract. If the letter looks wrong here, it's a crop/threshold issue.
                                   </Text>
                                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
@@ -518,14 +519,14 @@ export function SaveGameModal({
                                         tile.confidence >= 50 ? "#fff3e0" : "#ffcdd2";
                                       return (
                                         <View key={i} style={{ alignItems: "center", gap: 3, width: 80 }}>
-                                          <Text style={{ fontSize: 10, color: "#aaa", fontFamily: "monospace" }}>#{i + 1}</Text>
+                                          <Text style={{ fontSize: 10, color: C.textTertiary, fontFamily: "monospace" }}>#{i + 1}</Text>
                                           <Image
                                             source={{ uri: tile.debugUrl }}
-                                            style={{ width: 68, height: 68, borderRadius: 4, borderWidth: 1, borderColor: "#aaa", backgroundColor: "#fff" }}
+                                            style={{ width: 68, height: 68, borderRadius: 4, borderWidth: 1, borderColor: C.border, backgroundColor: C.surfaceSecondary }}
                                             resizeMode="contain"
                                           />
                                           <View style={{ backgroundColor: bg, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2, alignItems: "center" }}>
-                                            <Text style={{ fontFamily: "monospace", fontWeight: "700", fontSize: 16 }}>{tile.letter} {tile.confidence}%</Text>
+                                            <Text style={{ fontFamily: "monospace", fontWeight: "700", fontSize: 16, color: "#111" }}>{tile.letter} {tile.confidence}%</Text>
                                           </View>
                                         </View>
                                       );
@@ -537,7 +538,7 @@ export function SaveGameModal({
                           )}
 
                           {ocrResult.tiles.length === 0 && (
-                            <Text style={{ color: "#c00" }}>
+                            <Text style={{ color: C.danger }}>
                               No tiles detected. Try better lighting or a more overhead angle.
                             </Text>
                           )}
@@ -545,7 +546,7 @@ export function SaveGameModal({
                       )}
                     </>
                   ) : (
-                    <Text style={{ color: "#666" }}>OCR is web-only for now.</Text>
+                    <Text style={{ color: C.textSecondary }}>OCR is web-only for now.</Text>
                   )}
                 </View>
 
@@ -556,22 +557,22 @@ export function SaveGameModal({
             {step === 2 && (
               <View style={{ flex: 1 }}>
                 {/* Legend */}
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" }}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 0.5, borderBottomColor: C.borderTertiary }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <View style={{ width: 14, height: 14, backgroundColor: "#FFF8E1", borderWidth: 1, borderColor: "#F9A825", borderRadius: 2 }} />
-                    <Text style={{ fontSize: 11, color: "#666" }}>OCR detected</Text>
+                    <Text style={{ fontSize: 11, color: C.textTertiary }}>OCR detected</Text>
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <View style={{ width: 14, height: 14, backgroundColor: "#FFF0E0", borderWidth: 1, borderColor: "#E65100", borderRadius: 2 }} />
-                    <Text style={{ fontSize: 11, color: "#666" }}>Low confidence</Text>
+                    <Text style={{ fontSize: 11, color: C.textTertiary }}>Low confidence</Text>
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <View style={{ width: 14, height: 14, backgroundColor: "#E8F5E9", borderWidth: 1, borderColor: "#388E3C", borderRadius: 2 }} />
-                    <Text style={{ fontSize: 11, color: "#666" }}>Manually added</Text>
+                    <Text style={{ fontSize: 11, color: C.textTertiary }}>Manually added</Text>
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <View style={{ width: 14, height: 14, backgroundColor: "#fafafa", borderWidth: 1, borderColor: "#ddd", borderRadius: 2 }} />
-                    <Text style={{ fontSize: 11, color: "#666" }}>Empty (tap to add)</Text>
+                    <View style={{ width: 14, height: 14, backgroundColor: C.surfaceSecondary, borderWidth: 1, borderColor: C.border, borderRadius: 2 }} />
+                    <Text style={{ fontSize: 11, color: C.textTertiary }}>Empty (tap to add)</Text>
                   </View>
                 </View>
 
@@ -606,7 +607,7 @@ export function SaveGameModal({
                             ? "#FFF8E1"
                             : cell?.source === "manual"
                             ? "#E8F5E9"
-                            : "#fafafa";
+                            : C.surfaceSecondary;
 
                           const borderColor = isSelected
                             ? "#1a73e8"
@@ -618,7 +619,7 @@ export function SaveGameModal({
                             ? "#F9A825"
                             : cell?.source === "manual"
                             ? "#388E3C"
-                            : "#e0e0e0";
+                            : C.border;
 
                           return (
                             <Pressable
@@ -636,7 +637,7 @@ export function SaveGameModal({
                               }}
                             >
                               {cell && (
-                                <Text style={{ fontSize: 20, fontWeight: "700", color: "#222" }}>
+                                <Text style={{ fontSize: 20, fontWeight: "700", color: "#1a1a1a" }}>
                                   {cell.letter}
                                 </Text>
                               )}
@@ -649,8 +650,8 @@ export function SaveGameModal({
                 </ScrollView>
 
                 {/* Word list strip */}
-                <View style={{ borderTopWidth: 1, borderTopColor: "#f0f0f0", backgroundColor: "#fafafa", paddingHorizontal: 12, paddingVertical: 8 }}>
-                  <Text style={{ fontSize: 11, fontWeight: "600", color: "#888", marginBottom: 6 }}>
+                <View style={{ borderTopWidth: 0.5, borderTopColor: C.borderTertiary, backgroundColor: C.surface, paddingHorizontal: 12, paddingVertical: 8 }}>
+                  <Text style={{ fontSize: 11, fontWeight: "600", color: C.textTertiary, marginBottom: 6 }}>
                     {sortedWords.length > 0
                       ? `WORDS (${sortedWords.length})${dict === null ? " — checking…" : ""}`
                       : "NO WORDS DETECTED"}
@@ -666,16 +667,22 @@ export function SaveGameModal({
                         );
 
                         const chipBorderColor = !valid
-                          ? "#EF9A9A"
+                          ? C.dangerBorder
                           : isActive
                           ? "#7B1FA2"
-                          : w.direction === "horizontal" ? "#90CAF9" : "#CE93D8";
+                          : w.direction === "horizontal" ? "#2F7FE3" : "#3D9B4D";
 
                         const chipBg = !valid
-                          ? "#FFEBEE"
+                          ? C.dangerBg
                           : isActive
-                          ? "#EDE7F6"
-                          : w.direction === "horizontal" ? "#E3F2FD" : "#F3E5F5";
+                          ? "#2D1F40"
+                          : w.direction === "horizontal" ? "#1A2F45" : "#1A3325";
+
+                        const chipText = !valid
+                          ? C.danger
+                          : isActive
+                          ? "#CE93D8"
+                          : w.direction === "horizontal" ? "#7BB8F5" : "#7EC98B";
 
                         return (
                           <Pressable
@@ -695,10 +702,10 @@ export function SaveGameModal({
                               backgroundColor: chipBg,
                             }}
                           >
-                            <Text style={{ fontWeight: "700", fontFamily: "monospace", fontSize: 14, color: !valid ? "#C62828" : "#222" }}>
+                            <Text style={{ fontWeight: "700", fontFamily: "monospace", fontSize: 14, color: chipText }}>
                               {w.word}
                             </Text>
-                            <Text style={{ fontSize: 9, color: !valid ? "#EF5350" : "#888", textAlign: "center" }}>
+                            <Text style={{ fontSize: 9, color: chipText, opacity: 0.8, textAlign: "center" }}>
                               {!valid ? "invalid" : w.direction === "horizontal" ? "→" : "↓"}
                             </Text>
                           </Pressable>
@@ -706,7 +713,7 @@ export function SaveGameModal({
                       })}
                     </ScrollView>
                   ) : (
-                    <Text style={{ fontSize: 11, color: "#bbb", fontStyle: "italic" }}>Add tiles to form words of 2+ letters.</Text>
+                    <Text style={{ fontSize: 11, color: C.textTertiary, fontStyle: "italic" }}>Add tiles to form words of 2+ letters.</Text>
                   )}
                 </View>
 
@@ -715,17 +722,17 @@ export function SaveGameModal({
                   Platform.OS === "web" ? (
                     /* ── Web: custom QWERTY keyboard ── */
                     <View style={{
-                      borderTopWidth: 1, borderTopColor: "#e0e0e0",
-                      backgroundColor: "#fff", paddingHorizontal: 12, paddingTop: 10, paddingBottom: 16,
+                      borderTopWidth: 0.5, borderTopColor: C.borderTertiary,
+                      backgroundColor: C.surfaceSecondary, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 16,
                     }}>
                       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <Text style={{ fontSize: 13, color: "#555" }}>
+                        <Text style={{ fontSize: 13, color: C.textSecondary }}>
                           {editorCells.get(`${selecting.col},${selecting.row}`)
                             ? `Change letter at (${selecting.col}, ${selecting.row})`
                             : `Add tile at (${selecting.col}, ${selecting.row})`}
                         </Text>
                         <Pressable onPress={() => setSelecting(null)} style={{ padding: 4 }}>
-                          <Text style={{ fontSize: 16, color: "#888" }}>✕</Text>
+                          <Text style={{ fontSize: 16, color: C.textTertiary }}>✕</Text>
                         </Pressable>
                       </View>
 
@@ -738,13 +745,13 @@ export function SaveGameModal({
                                 onPress={() => handleLetterSelect(l)}
                                 style={{
                                   width: KEY_SIZE, height: KEY_SIZE + 4,
-                                  backgroundColor: "#f5f5f5",
+                                  backgroundColor: C.surface,
                                   borderRadius: 5,
-                                  borderWidth: 1, borderColor: "#ddd",
+                                  borderWidth: 0.5, borderColor: C.border,
                                   justifyContent: "center", alignItems: "center",
                                 }}
                               >
-                                <Text style={{ fontWeight: "700", fontSize: 14 }}>{l}</Text>
+                                <Text style={{ fontWeight: "600", fontSize: 14, color: C.textPrimary }}>{l}</Text>
                               </Pressable>
                             ))}
 
@@ -753,14 +760,14 @@ export function SaveGameModal({
                                 onPress={handleClearCell}
                                 style={{
                                   width: KEY_SIZE + 10, height: KEY_SIZE + 4,
-                                  backgroundColor: "#FFEBEE",
+                                  backgroundColor: C.dangerBg,
                                   borderRadius: 5,
-                                  borderWidth: 1, borderColor: "#FFCDD2",
+                                  borderWidth: 0.5, borderColor: C.dangerBorder,
                                   justifyContent: "center", alignItems: "center",
                                   marginLeft: KEY_GAP,
                                 }}
                               >
-                                <Text style={{ fontSize: 15, color: "#C62828" }}>⌫</Text>
+                                <Text style={{ fontSize: 15, color: C.danger }}>⌫</Text>
                               </Pressable>
                             )}
                           </View>
@@ -771,18 +778,18 @@ export function SaveGameModal({
                     /* ── Mobile: native keyboard via TextInput ── */
                     <KeyboardAvoidingView behavior="padding">
                       <View style={{
-                        borderTopWidth: 1, borderTopColor: "#e0e0e0",
-                        backgroundColor: "#fff", padding: 12, gap: 10,
+                        borderTopWidth: 0.5, borderTopColor: C.borderTertiary,
+                        backgroundColor: C.surface, padding: 12, gap: 10,
                       }}>
                         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                          <Text style={{ fontSize: 13, color: "#555" }}>
+                          <Text style={{ fontSize: 13, color: C.textSecondary }}>
                             {editorCells.get(`${selecting.col},${selecting.row}`) ? "Change letter" : "Add tile"}
                           </Text>
                           <Pressable
                             onPress={() => { Keyboard.dismiss(); setSelecting(null); }}
-                            style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: "#111", borderRadius: 8 }}
+                            style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.textPrimary, borderRadius: C.radiusSm }}
                           >
-                            <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>Done</Text>
+                            <Text style={{ color: C.bg, fontWeight: "600", fontSize: 13 }}>Done</Text>
                           </Pressable>
                         </View>
 
@@ -793,7 +800,7 @@ export function SaveGameModal({
                           autoCorrect={false}
                           returnKeyType="done"
                           placeholder="Type a letter…"
-                          placeholderTextColor="#bbb"
+                          placeholderTextColor={C.textTertiary}
                           onChangeText={(text) => {
                             const letter = text.replace(/[^A-Za-z]/g, "").toUpperCase().slice(-1);
                             if (!letter) return;
@@ -802,18 +809,18 @@ export function SaveGameModal({
                           }}
                           onSubmitEditing={() => { Keyboard.dismiss(); setSelecting(null); }}
                           style={{
-                            borderWidth: 1, borderColor: "#ddd", borderRadius: 10,
+                            borderWidth: 0.5, borderColor: C.border, borderRadius: C.radiusMd,
                             padding: 14, fontSize: 28, fontWeight: "700",
-                            textAlign: "center", backgroundColor: "#f9f9f9", color: "#111",
+                            textAlign: "center", backgroundColor: C.surfaceSecondary, color: C.textPrimary,
                           }}
                         />
 
                         {editorCells.get(`${selecting.col},${selecting.row}`) && (
                           <Pressable
                             onPress={() => { Keyboard.dismiss(); handleClearCell(); }}
-                            style={{ padding: 12, backgroundColor: "#FFEBEE", borderRadius: 8, alignItems: "center", borderWidth: 1, borderColor: "#FFCDD2" }}
+                            style={{ padding: 12, backgroundColor: C.dangerBg, borderRadius: C.radiusSm, alignItems: "center", borderWidth: 0.5, borderColor: C.dangerBorder }}
                           >
-                            <Text style={{ color: "#C62828", fontWeight: "600" }}>Clear tile</Text>
+                            <Text style={{ color: C.danger, fontWeight: "500" }}>Clear tile</Text>
                           </Pressable>
                         )}
                       </View>
@@ -827,20 +834,20 @@ export function SaveGameModal({
             {step === 3 && (
               <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
                 <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ fontWeight: "600" }}>Players</Text>
+                  <Text style={{ fontWeight: "600", color: C.textPrimary }}>Players</Text>
                   <Pressable onPress={async () => {
                     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     setAddModalOpen(true);
                   }}>
-                    <Text style={{ fontSize: 16 }}>+ Add Player</Text>
+                    <Text style={{ fontSize: 15, color: C.info }}>+ Add Player</Text>
                   </Pressable>
                 </View>
                 <PlayerMultiSelect players={players} selectedIds={selectedIds} onToggle={toggle} />
 
                 <View style={{ gap: 8 }}>
-                  <Text style={{ fontWeight: "600" }}>Winner</Text>
+                  <Text style={{ fontWeight: "600", color: C.textPrimary }}>Winner</Text>
                   {selectedPlayers.length === 0 ? (
-                    <Text style={{ color: "#666" }}>Select players first.</Text>
+                    <Text style={{ color: C.textSecondary }}>Select players first.</Text>
                   ) : (
                     <View style={{ gap: 8 }}>
                       {selectedPlayers.map((p) => {
@@ -850,13 +857,13 @@ export function SaveGameModal({
                             key={p.id}
                             onPress={() => setWinnerId(p.id)}
                             style={{
-                              padding: 12, borderWidth: 1, borderRadius: 10,
-                              borderColor: selected ? "#333" : "#ccc",
-                              backgroundColor: selected ? "#eaeaea" : "white",
+                              padding: 12, borderWidth: selected ? 1 : 0.5, borderRadius: C.radiusMd,
+                              borderColor: selected ? C.brand : C.borderTertiary,
+                              backgroundColor: selected ? C.surfaceSecondary : C.surface,
                               flexDirection: "row", justifyContent: "space-between",
                             }}
                           >
-                            <Text style={{ fontSize: 16 }}>{p.name}</Text>
+                            <Text style={{ fontSize: 15, color: C.textPrimary }}>{p.name}</Text>
                             <Text>{selected ? "🏆" : ""}</Text>
                           </Pressable>
                         );
@@ -869,11 +876,11 @@ export function SaveGameModal({
 
             {/* ── Pinned footer ── */}
             <View style={{
-              padding: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#eee",
-              flexDirection: "row", justifyContent: "space-between", gap: 12, backgroundColor: "white",
+              padding: 20, paddingTop: 12, borderTopWidth: 0.5, borderTopColor: C.borderTertiary,
+              flexDirection: "row", justifyContent: "space-between", gap: 12, backgroundColor: C.surface,
             }}>
               <Pressable onPress={onClose} disabled={saving} style={{ padding: 12 }}>
-                <Text style={{ color: "#666" }}>Cancel</Text>
+                <Text style={{ color: C.textSecondary }}>Cancel</Text>
               </Pressable>
 
               <View style={{ flexDirection: "row", gap: 10 }}>
@@ -883,9 +890,9 @@ export function SaveGameModal({
                       if (step === 2) setStep(1);
                       else backToStep2(savedBoard);
                     }}
-                    style={{ padding: 12, borderRadius: 10, borderWidth: 1, borderColor: "#ddd" }}
+                    style={{ padding: 12, borderRadius: C.radiusMd, borderWidth: 0.5, borderColor: C.border }}
                   >
-                    <Text style={{ color: "#444" }}>← Back</Text>
+                    <Text style={{ color: C.textSecondary }}>← Back</Text>
                   </Pressable>
                 )}
 
@@ -893,18 +900,18 @@ export function SaveGameModal({
                   <Pressable
                     onPress={goToStep2}
                     disabled={ocrRunning}
-                    style={{ padding: 12, backgroundColor: ocrRunning ? "#bbb" : "#111", borderRadius: 10, opacity: ocrRunning ? 0.6 : 1 }}
+                    style={{ padding: 12, backgroundColor: ocrRunning ? C.surfaceSecondary : C.brand, borderRadius: C.radiusMd, opacity: ocrRunning ? 0.6 : 1 }}
                   >
-                    <Text style={{ color: "white" }}>{ocrRunning ? "Scanning…" : "Next →"}</Text>
+                    <Text style={{ color: ocrRunning ? C.textTertiary : C.brandText, fontWeight: "500" }}>{ocrRunning ? "Scanning…" : "Next →"}</Text>
                   </Pressable>
                 )}
 
                 {step === 2 && (
                   <Pressable
                     onPress={goToStep3}
-                    style={{ padding: 12, backgroundColor: "#111", borderRadius: 10 }}
+                    style={{ padding: 12, backgroundColor: C.brand, borderRadius: C.radiusMd }}
                   >
-                    <Text style={{ color: "white" }}>{isCheckMode ? "Check Board →" : isUploadMode ? "Upload →" : "Next →"}</Text>
+                    <Text style={{ color: C.brandText, fontWeight: "500" }}>{isCheckMode ? "Check Board →" : isUploadMode ? "Upload →" : "Next →"}</Text>
                   </Pressable>
                 )}
 
@@ -912,9 +919,9 @@ export function SaveGameModal({
                   <Pressable
                     onPress={handleSave}
                     disabled={saving}
-                    style={{ padding: 12, backgroundColor: "#111", borderRadius: 10 }}
+                    style={{ padding: 12, backgroundColor: saving ? C.surfaceSecondary : C.brand, borderRadius: C.radiusMd }}
                   >
-                    <Text style={{ color: "white" }}>{saving ? "Saving…" : "Save"}</Text>
+                    <Text style={{ color: saving ? C.textTertiary : C.brandText, fontWeight: "500" }}>{saving ? "Saving…" : "Save"}</Text>
                   </Pressable>
                 )}
               </View>

@@ -79,7 +79,7 @@ export type PlayerSlot = {
 
 // ── Game session (room mode) ───────────────────────────────────────────────────
 
-export type SessionStatus = "lobby" | "active" | "ended";
+export type SessionStatus = "lobby" | "active" | "checking" | "ended" | "closed";
 
 export type GameSession = {
   id: string;
@@ -91,6 +91,9 @@ export type GameSession = {
   eliminations: Elimination[];
   winnerId: string | null;
   outcome: "bananas" | "last_standing" | null;
+  checkingPlayerId: string | null;
+  gameId: string | null;
+  boardUploads: Record<string, "uploaded" | "skipped">;
   createdAt: string;
 };
 
@@ -358,6 +361,9 @@ function snapToSession(snap: any): GameSession {
     eliminations: d.eliminations ?? [],
     winnerId: d.winnerId ?? null,
     outcome: d.outcome ?? null,
+    checkingPlayerId: d.checkingPlayerId ?? null,
+    gameId: d.gameId ?? null,
+    boardUploads: d.boardUploads ?? {},
     createdAt: d.createdAt instanceof Timestamp ? d.createdAt.toDate().toISOString() : (d.createdAt ?? ""),
   };
 }
@@ -463,21 +469,76 @@ export async function startSession(sessionId: string): Promise<void> {
   });
 }
 
+/** Called when any player presses BANANAS! — pauses timer and broadcasts checking state. */
+export async function pauseSessionForChecking(
+  sessionId: string,
+  checkingPlayerId: string,
+  elapsed: number
+): Promise<void> {
+  await ensureAuthClientSide();
+  await updateDoc(doc(sessionsCol(), sessionId), {
+    status: "checking",
+    checkingPlayerId,
+    "timer.elapsed": elapsed,
+  });
+}
+
+/** Called when the check resolves as rotten and the game resumes. */
+export async function resumeSessionAfterChecking(
+  sessionId: string,
+  elapsed: number
+): Promise<void> {
+  await ensureAuthClientSide();
+  await updateDoc(doc(sessionsCol(), sessionId), {
+    status: "active",
+    checkingPlayerId: null,
+    "timer.elapsed": elapsed,
+    "timer.startedAt": new Date().toISOString(),
+  });
+}
+
 export async function endSession(
   sessionId: string,
   winnerId: string,
   outcome: "bananas" | "last_standing",
   elapsed: number,
-  eliminations: Elimination[]
+  eliminations: Elimination[],
+  gameId: string,
+  boardUploads?: Record<string, "uploaded" | "skipped">
 ): Promise<void> {
   await ensureAuthClientSide();
-  await updateDoc(doc(sessionsCol(), sessionId), {
+  const update: Record<string, any> = {
     status: "ended",
     winnerId,
     outcome,
     "timer.elapsed": elapsed,
     eliminations,
+    gameId,
+  };
+  if (boardUploads) {
+    for (const [uid, status] of Object.entries(boardUploads)) {
+      update[`boardUploads.${uid}`] = status;
+    }
+  }
+  await updateDoc(doc(sessionsCol(), sessionId), update);
+}
+
+/** Writes a single player's board upload status to the session so all devices can see it. */
+export async function updateSessionBoardUpload(
+  sessionId: string,
+  playerUid: string,
+  status: "uploaded" | "skipped"
+): Promise<void> {
+  await ensureAuthClientSide();
+  await updateDoc(doc(sessionsCol(), sessionId), {
+    [`boardUploads.${playerUid}`]: status,
   });
+}
+
+/** Called by the host after the board upload phase — signals all devices to dismiss. */
+export async function closeSession(sessionId: string): Promise<void> {
+  await ensureAuthClientSide();
+  await updateDoc(doc(sessionsCol(), sessionId), { status: "closed" });
 }
 
 export function subscribeToSession(

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Animated, Image, Modal, Platform, Pressable, Text, View } from "react-native";
 import { Audio } from "expo-av";
+import { playSound } from "../utils/sound";
 
 export function CelebrationOverlay({
   type,
@@ -24,26 +25,23 @@ export function CelebrationOverlay({
 
     // Play sound
     let soundObj: Audio.Sound | null = null;
-    (async () => {
-      try {
-        if (Platform.OS === "web") {
-          const url = isBananas
-            ? require("../assets/sounds/bananas.mp3")
-            : require("../assets/sounds/rotten-bananas.mp3");
-          const audio = new (window as any).Audio(url);
-          audio.play().catch(() => {});
-        } else {
+    if (Platform.OS === "web") {
+      playSound(isBananas ? "bananas" : "rotten");
+    } else {
+      (async () => {
+        try {
           await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: false });
           const source = isBananas
             ? require("../assets/sounds/bananas.mp3")
             : require("../assets/sounds/rotten-bananas.mp3");
-          const { sound } = await Audio.Sound.createAsync(source, { shouldPlay: true });
+          const { sound } = await Audio.Sound.createAsync(source);
           soundObj = sound;
+          await sound.playAsync();
+        } catch (e) {
+          // Sound is optional — silently ignore errors
         }
-      } catch (e) {
-        // Sound is optional — silently ignore errors
-      }
-    })();
+      })();
+    }
 
     // Fire confetti on web for valid boards
     if (isBananas && Platform.OS === "web") {
