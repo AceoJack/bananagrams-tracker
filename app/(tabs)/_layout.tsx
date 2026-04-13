@@ -8,8 +8,9 @@ import { C } from "../../utils/designSystem";
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
 const TABS = [
-  { name: "split",   label: "Split",   icon: "timer"  } as const,
-  { name: "profile", label: "Profile", icon: "person" } as const,
+  { name: "split",   label: "Split",   icon: "timer"   } as const,
+  { name: "friends", label: "Friends", icon: "people"  } as const,
+  { name: "profile", label: "Profile", icon: "person"  } as const,
 ];
 
 // ── Tab button ────────────────────────────────────────────────────────────────
@@ -114,11 +115,11 @@ export default function TabLayout() {
     >
       {/* Visible tabs */}
       <Tabs.Screen name="split"   />
-      <Tabs.Screen name="stats"   />
+      <Tabs.Screen name="friends" />
       <Tabs.Screen name="profile" />
       {/* Hidden — still routable */}
       <Tabs.Screen name="index"   />
-      <Tabs.Screen name="friends" />
+      <Tabs.Screen name="stats"   />
     </Tabs>
   );
 }

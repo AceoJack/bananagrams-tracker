@@ -20,6 +20,7 @@ import { FadeInView } from "../../components/FadeInView";
 import { AvatarCircle } from "../../components/AvatarCircle";
 import { formatDuration } from "../../utils/format";
 import { C } from "../../utils/designSystem";
+import { unlockAudio } from "../../utils/sound";
 import {
   getOrCreateUserProfile,
   listGuests,
@@ -36,6 +37,7 @@ import {
   pauseSessionForChecking,
   resumeSessionAfterChecking,
   closeSession,
+  updateSessionBoardUpload,
   subscribeToSession,
 } from "../../db/queries.firestore";
 import type {
@@ -382,6 +384,28 @@ export default function SplitScreen() {
           setCheckSubMode("pick");
           setPhase("playing");
         }
+        // Game ended on another device — go to board uploads
+        if (s.status === "ended" && (phaseRef.current === "playing" || phaseRef.current === "checking")) {
+          pauseTimer();
+          setGamePlayers(s.players);
+          const sessionElims: EliminationRecord[] = (s.eliminations ?? []).map((e) => ({
+            playerUid: e.playerId,
+            playerName: s.players.find((p) => p.uid === e.playerId)?.displayName ?? "Player",
+            eliminatedAt: e.eliminatedAt,
+          }));
+          setEliminations(sessionElims);
+          if (s.gameId) {
+            setSavedGameId(s.gameId);
+            const status: Record<string, BoardUploadStatus> = {};
+            for (const p of s.players) status[p.uid] = "pending";
+            setBoardUploadStatus({ ...status, ...s.boardUploads });
+            setPhase("board_uploads");
+          }
+        }
+        // Sync board upload statuses from other devices
+        if (phaseRef.current === "board_uploads" && Object.keys(s.boardUploads).length > 0) {
+          setBoardUploadStatus((prev) => ({ ...prev, ...s.boardUploads }));
+        }
       });
       setGameMode("room");
       setPhase("lobby");
@@ -450,13 +474,17 @@ export default function SplitScreen() {
             setSavedGameId(s.gameId);
             const status: Record<string, BoardUploadStatus> = {};
             for (const p of s.players) status[p.uid] = "pending";
-            setBoardUploadStatus(status);
+            setBoardUploadStatus({ ...status, ...s.boardUploads });
             setPhase("board_uploads");
           }
         }
         // Host closed the session after board uploads
         if (s.status === "closed" && phaseRef.current === "board_uploads") {
           setRoomClosed(true);
+        }
+        // Sync board upload statuses from other devices
+        if (phaseRef.current === "board_uploads" && Object.keys(s.boardUploads).length > 0) {
+          setBoardUploadStatus((prev) => ({ ...prev, ...s.boardUploads }));
         }
       });
       setGameMode("room");
@@ -504,6 +532,7 @@ export default function SplitScreen() {
 
   // ── BANANAS press ─────────────────────────────────────────────────────────
   const handleBananas = async () => {
+    unlockAudio();
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     pauseTimer();
     if (gameMode === "room" && activeSession && myProfile) {
@@ -536,6 +565,7 @@ export default function SplitScreen() {
 
   // ── Check result ──────────────────────────────────────────────────────────
   const handleCheckResult = async (valid: boolean, board: StoredBoard | null) => {
+    unlockAudio();
     if (valid) {
       await saveGame(checkingPlayerUid!, "bananas", board, eliminations);
     } else {
@@ -620,13 +650,17 @@ export default function SplitScreen() {
         outcome,
       });
       setSavedGameId(gameId);
-      setBoardUploadStatus(initBoardUploadStatus(gamePlayers, winnerUid, board, eliminatedBoards));
+      const uploadStatus = initBoardUploadStatus(gamePlayers, winnerUid, board, eliminatedBoards);
+      setBoardUploadStatus(uploadStatus);
       // Save any boards that were scanned during the rotten check phase
       await Promise.all(
         Object.entries(eliminatedBoards).map(([uid, b]) => addPlayerBoard(gameId, uid, b).catch(() => {}))
       );
       if (activeSession && gameMode === "room") {
-        await endSession(activeSession.id, winnerUid, outcome, finalMs, elimsPayload, gameId).catch(() => {});
+        const sessionUploads = Object.fromEntries(
+          Object.entries(uploadStatus).filter(([, v]) => v !== "pending")
+        ) as Record<string, "uploaded" | "skipped">;
+        await endSession(activeSession.id, winnerUid, outcome, finalMs, elimsPayload, gameId, sessionUploads).catch(() => {});
       }
       const winnerName = gamePlayers.find((p) => p.uid === winnerUid)?.displayName;
       if (rottenPlayerName) {
@@ -661,12 +695,15 @@ export default function SplitScreen() {
         ...(elimsPayload.length ? { eliminations: elimsPayload } : {}),
         outcome: "last_standing",
       });
-      if (activeSession && gameMode === "room") {
-        await endSession(activeSession.id, winnerUid, "last_standing", finalMs, elimsPayload, gameId).catch(() => {});
-      }
       setSavedGameId(gameId);
       const status = initBoardUploadStatus(gamePlayers, winnerUid, board ?? null, eliminatedBoards);
       setBoardUploadStatus(status);
+      if (activeSession && gameMode === "room") {
+        const sessionUploads = Object.fromEntries(
+          Object.entries(status).filter(([, v]) => v !== "pending")
+        ) as Record<string, "uploaded" | "skipped">;
+        await endSession(activeSession.id, winnerUid, "last_standing", finalMs, elimsPayload, gameId, sessionUploads).catch(() => {});
+      }
       // Save any boards that were scanned during the rotten check phase
       await Promise.all(
         Object.entries(eliminatedBoards).map(([uid, b]) => addPlayerBoard(gameId, uid, b).catch(() => {}))
@@ -1148,9 +1185,11 @@ export default function SplitScreen() {
 
   // ── Board uploads (post-game) ─────────────────────────────────────────────
   if (phase === "board_uploads" && savedGameId) {
-    const winnerUid = gamePlayers.find((p) =>
-      !eliminations.some((e) => e.playerUid === p.uid)
-    )?.uid ?? null;
+    // For room games, use the authoritative winnerId from the session.
+    // For local games, derive it from eliminations.
+    const winnerUid = (gameMode === "room" && activeSession?.winnerId)
+      ? activeSession.winnerId
+      : gamePlayers.find((p) => !eliminations.some((e) => e.playerUid === p.uid))?.uid ?? null;
 
     return (
       <FadeInView>
@@ -1207,7 +1246,12 @@ export default function SplitScreen() {
                         <Text style={{ color: C.surface, fontWeight: "500", fontSize: 13 }}>Scan</Text>
                       </Pressable>
                       <Pressable
-                        onPress={() => setBoardUploadStatus((prev) => ({ ...prev, [p.uid]: "skipped" }))}
+                        onPress={() => {
+                          setBoardUploadStatus((prev) => ({ ...prev, [p.uid]: "skipped" }));
+                          if (gameMode === "room" && activeSession) {
+                            updateSessionBoardUpload(activeSession.id, p.uid, "skipped").catch(() => {});
+                          }
+                        }}
                         style={{
                           paddingHorizontal: 12, paddingVertical: 6,
                           borderRadius: C.radiusSm,
@@ -1252,6 +1296,9 @@ export default function SplitScreen() {
             if (board && boardUploadingUid && savedGameId) {
               await addPlayerBoard(savedGameId, boardUploadingUid, board).catch(() => {});
               setBoardUploadStatus((prev) => ({ ...prev, [boardUploadingUid]: "uploaded" }));
+              if (gameMode === "room" && activeSession) {
+                updateSessionBoardUpload(activeSession.id, boardUploadingUid, "uploaded").catch(() => {});
+              }
             }
             setBoardUploadingUid(null);
           }}
@@ -1471,8 +1518,8 @@ export default function SplitScreen() {
               backgroundColor: C.borderTertiary, alignSelf: "center",
             }} />
 
-            {/* Non-host waiting view (room mode only) */}
-            {gameMode === "room" && !isHost && (
+            {/* Waiting view — shown to everyone except the player who called Bananas! */}
+            {gameMode === "room" && checkingPlayerUid !== myProfile?.uid && (
               <View style={{ alignItems: "center", gap: 16, paddingVertical: 16 }}>
                 <ActivityIndicator size="large" color={C.brand} />
                 <Text style={{ fontSize: 16, fontWeight: "500", color: C.textPrimary, textAlign: "center" }}>
@@ -1481,12 +1528,14 @@ export default function SplitScreen() {
                     : "Bananas! called"}
                 </Text>
                 <Text style={{ fontSize: 13, color: C.textSecondary, textAlign: "center" }}>
-                  Waiting for host to check the board…
+                  {checkingPlayer
+                    ? `Waiting for ${checkingPlayer.displayName} to confirm their board…`
+                    : "Waiting for the player to confirm…"}
                 </Text>
               </View>
             )}
 
-            {(gameMode !== "room" || isHost) && checkSubMode === "pick" && (
+            {(gameMode !== "room" || checkingPlayerUid === myProfile?.uid) && checkSubMode === "pick" && (
               <>
                 <Text style={{ fontSize: 18, fontWeight: "500", color: C.textPrimary, textAlign: "center" }}>
                   Who called Bananas?
@@ -1513,7 +1562,7 @@ export default function SplitScreen() {
               </>
             )}
 
-            {(gameMode !== "room" || isHost) && checkSubMode === "options" && checkingPlayer && (
+            {(gameMode !== "room" || checkingPlayerUid === myProfile?.uid) && checkSubMode === "options" && checkingPlayer && (
               <>
                 <View style={{ gap: 4 }}>
                   <Text style={{ fontSize: 14, fontWeight: "500", color: C.textPrimary, textAlign: "center" }}>
@@ -1532,7 +1581,7 @@ export default function SplitScreen() {
                     borderWidth: 0.5, borderColor: C.info,
                   })}
                 >
-                  <Text style={{ color: C.info, fontWeight: "500", fontSize: 16 }}>Scan their board</Text>
+                  <Text style={{ color: C.info, fontWeight: "500", fontSize: 16 }}>Scan your board</Text>
                 </Pressable>
 
                 <View style={{ flexDirection: "row", gap: 8 }}>
@@ -1568,7 +1617,7 @@ export default function SplitScreen() {
               </>
             )}
 
-            {(gameMode !== "room" || isHost) && checkSubMode === "manual" && checkingPlayer && (
+            {(gameMode !== "room" || checkingPlayerUid === myProfile?.uid) && checkSubMode === "manual" && checkingPlayer && (
               <>
                 <Text style={{ fontSize: 16, fontWeight: "500", color: C.textPrimary, textAlign: "center" }}>
                   Is {checkingPlayer.displayName}'s board valid?

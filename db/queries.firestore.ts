@@ -93,6 +93,7 @@ export type GameSession = {
   outcome: "bananas" | "last_standing" | null;
   checkingPlayerId: string | null;
   gameId: string | null;
+  boardUploads: Record<string, "uploaded" | "skipped">;
   createdAt: string;
 };
 
@@ -362,6 +363,7 @@ function snapToSession(snap: any): GameSession {
     outcome: d.outcome ?? null,
     checkingPlayerId: d.checkingPlayerId ?? null,
     gameId: d.gameId ?? null,
+    boardUploads: d.boardUploads ?? {},
     createdAt: d.createdAt instanceof Timestamp ? d.createdAt.toDate().toISOString() : (d.createdAt ?? ""),
   };
 }
@@ -501,16 +503,35 @@ export async function endSession(
   outcome: "bananas" | "last_standing",
   elapsed: number,
   eliminations: Elimination[],
-  gameId: string
+  gameId: string,
+  boardUploads?: Record<string, "uploaded" | "skipped">
 ): Promise<void> {
   await ensureAuthClientSide();
-  await updateDoc(doc(sessionsCol(), sessionId), {
+  const update: Record<string, any> = {
     status: "ended",
     winnerId,
     outcome,
     "timer.elapsed": elapsed,
     eliminations,
     gameId,
+  };
+  if (boardUploads) {
+    for (const [uid, status] of Object.entries(boardUploads)) {
+      update[`boardUploads.${uid}`] = status;
+    }
+  }
+  await updateDoc(doc(sessionsCol(), sessionId), update);
+}
+
+/** Writes a single player's board upload status to the session so all devices can see it. */
+export async function updateSessionBoardUpload(
+  sessionId: string,
+  playerUid: string,
+  status: "uploaded" | "skipped"
+): Promise<void> {
+  await ensureAuthClientSide();
+  await updateDoc(doc(sessionsCol(), sessionId), {
+    [`boardUploads.${playerUid}`]: status,
   });
 }
 
